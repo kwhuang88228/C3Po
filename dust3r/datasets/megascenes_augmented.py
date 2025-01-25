@@ -1,11 +1,15 @@
 import json
 import os
+import sys
 
 import numpy as np
 import PIL.Image
 import torch
-from torch.utils.data import Dataset, DataLoader
-from tqdm import tqdm
+
+sys.path.append(os.path.dirname("/share/phoenix/nfs06/S9/kh775/code/dust3r/dust3r"))
+from dust3r.image_pairs import make_pairs
+from dust3r.utils.image import load_megascenes_augmented_images
+from torch.utils.data import DataLoader, Dataset
 
 
 class MegaScenesAugmented(Dataset):
@@ -69,20 +73,29 @@ class MegaScenesAugmented(Dataset):
         return (len(self.plan_paths))
 
     def __getitem__(self, idx):
-        plan = np.array(PIL.Image.open(self.plan_paths[idx]).convert('RGB'))
-        image = np.array(PIL.Image.open(self.image_paths[idx]).convert('RGB'))
         plan_xy = self.plan_xys_list[idx]
         image_xy = self.image_xys_list[idx]
-
-        return plan, image, plan_xy, image_xy
+        images = load_megascenes_augmented_images(
+            [self.plan_paths[idx], self.image_paths[idx]], 
+            size=224, 
+            plan_xy=plan_xy,
+            image_xy=image_xy
+        )
+        view1, view2 = images
+        # pairs = make_pairs(images, scene_graph='complete', prefilter=None, symmetrize=True)
+        return view1, view2
 
 
 if __name__ == "__main__":
     data_dir = "/share/phoenix/nfs06/S9/kh775/dataset/megascenes_augmented_exhaustive"
     json_dir = "/share/phoenix/nfs06/S9/kh775/code/wsfm/scripts/data/keypoint_localization/data_test"
     dataset = MegaScenesAugmented(json_dir, data_dir)
-    dataloader = DataLoader(dataset)
+    print(dataset[0][0]["img"].size())
+    print(dataset[0][0]["plan_xy"])
 
-    for x in dataloader:
-        print(x)
+    dataloader = DataLoader(dataset)
+    for view1, view2 in dataloader:
+        # print(view1, view2)
+        print(view1["img"].size())
+        print(view1["plan_xy"].size())
         break
