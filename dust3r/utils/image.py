@@ -175,11 +175,11 @@ def load_megascenes_augmented_images(pair, size, plan_xy, image_xy, square_ok=Fa
         print(f' - adding {plan_path} with resolution {plan_W1}x{plan_H1} --> {plan_W2}x{plan_H2}')
         print(f' - adding {img_path} with resolution {img_W1}x{img_H1} --> {img_W2}x{img_H2}')
     image_views.append(dict(img=ImgNorm(plan_resized_padded), true_shape=np.int32(
-        [plan_resized_padded.size[::-1]]), idx=len(image_views), instance=str(len(image_views)), 
-        plan_xy=np.int32(plan_xy), image_xy=np.int32(image_xy)))
+        plan_resized_padded.size[::-1]), idx=len(image_views), instance=str(len(image_views)), 
+        plan_xy=np.int32(plan_xy_updated), image_xy=np.int32(image_xy_updated)))
     image_views.append(dict(img=ImgNorm(img_resized_padded), true_shape=np.int32(
-        [img_resized_padded.size[::-1]]), idx=len(image_views), instance=str(len(image_views)), 
-        plan_xy=np.int32(plan_xy), image_xy=np.int32(image_xy)))
+        img_resized_padded.size[::-1]), idx=len(image_views), instance=str(len(image_views)), 
+        plan_xy=np.int32(plan_xy_updated), image_xy=np.int32(image_xy_updated)))
 
     if verbose:
         print(f' (Found {len(image_views)} images)')
