@@ -69,6 +69,34 @@ def _resize_pil_image(img, long_edge_size):
     new_size = tuple(int(round(x*long_edge_size/S)) for x in img.size)
     return img.resize(new_size, interp)
 
+def resize_and_pad(img, coords, size):
+    W, H = img.size
+
+    ratio = min(size / W, size / H)
+    W_target = int(W * ratio)
+    H_target = int(H * ratio)
+
+    if ratio > 1:
+        interp = PIL.Image.LANCZOS
+    else:
+        interp = PIL.Image.BICUBIC
+    img_resized = img.resize((W_target, H_target), interp)
+
+    img_resized_padded = PIL.Image.new("RGB", (size, size), (0, 0, 0))
+    img_resized_padded.paste(img_resized, ((size - W_target) // 2, (size - H_target) // 2))
+
+    resized_coords = coords * ratio
+    offset = np.array([0, (size - H_target) // 2]) if W_target > H_target else np.array([(size - W_target) // 2, 0])
+    updated_coords = resized_coords + offset
+
+    return img_resized_padded, updated_coords
+
+def get_scaled_plan(im):
+    max_h = 500
+    # im.size = (w, h)
+    plan_scale = max_h / im.size[1]
+    scaled_plan = im.resize((round(im.size[0] * plan_scale), max_h))
+    return scaled_plan
 
 def load_images(folder_or_list, size, square_ok=False, verbose=True):
     """ open and convert all images in a list or folder to proper input format for DUSt3R
@@ -124,3 +152,56 @@ def load_images(folder_or_list, size, square_ok=False, verbose=True):
     if verbose:
         print(f' (Found {len(imgs)} images)')
     return imgs
+
+def load_megascenes_augmented_images(pair, size, plan_xy, image_xy, square_ok=False, verbose=True):
+    """ open and convert all images in a list or folder to proper input format for DUSt3R
+    """
+    import matplotlib.pyplot as plt
+
+    plan_path, img_path = pair
+    image_views = []
+    plan = exif_transpose(PIL.Image.open(plan_path)).convert('RGB')
+    img = exif_transpose(PIL.Image.open(img_path)).convert('RGB')
+    plan_W1, plan_H1 = plan.size
+    img_W1, img_H1 = img.size
+    scaled_plan = get_scaled_plan(plan)
+
+    plan_resized_padded, plan_xy_updated = resize_and_pad(scaled_plan, plan_xy, size)
+    img_resized_padded, image_xy_updated = resize_and_pad(img, image_xy, size)
+    plan_W2, plan_H2 = plan_resized_padded.size
+    img_W2, img_H2 = img_resized_padded.size
+
+    if verbose:
+        print(f' - adding {plan_path} with resolution {plan_W1}x{plan_H1} --> {plan_W2}x{plan_H2}')
+        print(f' - adding {img_path} with resolution {img_W1}x{img_H1} --> {img_W2}x{img_H2}')
+    image_views.append(dict(img=ImgNorm(plan_resized_padded), true_shape=np.int32(
+        [plan_resized_padded.size[::-1]]), idx=len(image_views), instance=str(len(image_views)), 
+        plan_xy=np.int32(plan_xy), image_xy=np.int32(image_xy)))
+    image_views.append(dict(img=ImgNorm(img_resized_padded), true_shape=np.int32(
+        [img_resized_padded.size[::-1]]), idx=len(image_views), instance=str(len(image_views)), 
+        plan_xy=np.int32(plan_xy), image_xy=np.int32(image_xy)))
+
+    if verbose:
+        print(f' (Found {len(image_views)} images)')
+    return image_views
+
+
+if __name__ == "__main__":
+    folder_or_list = [
+        "/share/phoenix/nfs06/S9/kh775/dataset/megascenes_augmented_exhaustive/Església_de_Sant_Feliu_de_Girona/plans/File:Plànol de Sant Feliu.jpg", 
+        "/share/phoenix/nfs06/S9/kh775/dataset/megascenes_augmented_exhaustive/Església_de_Sant_Feliu_de_Girona/images/commons/Apses_of_the_Església_de_Sant_Feliu_de_Girona/0/pictures/174 Basílica de Sant Feliu, absis i façana est, pujada del Rei Martí (Girona).jpg"
+    ]
+    size = 224
+    plan_xy = np.array([182, 16])
+    image_xy = np.array([793, 743])
+    load_megascenes_augmented_images(folder_or_list, size, plan_xy, image_xy, square_ok=False, verbose=True)
+
+    # folder_or_list = [
+    #     "/share/phoenix/nfs06/S9/kh775/dataset/megascenes_augmented_exhaustive/Església_de_Sant_Feliu_de_Girona/plans/File:Plànol de Sant Feliu.jpg",
+    #     "/share/phoenix/nfs06/S9/kh775/dataset/megascenes_augmented_exhaustive/Església_de_Sant_Feliu_de_Girona/images/commons/Apses_of_the_Església_de_Sant_Feliu_de_Girona/0/pictures/174 Basílica de Sant Feliu, absis i façana est, pujada del Rei Martí (Girona).jpg"
+    # ]
+    # size = 224
+    # plan_xy = np.array([168, 13])
+    # image_xy = np.array([1002, 246])
+    # load_megascenes_augmented_images(folder_or_list, size, plan_xy, image_xy, square_ok=False, verbose=True)
+

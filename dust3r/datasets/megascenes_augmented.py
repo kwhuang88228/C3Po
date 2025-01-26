@@ -53,8 +53,8 @@ class MegaScenesAugmented(Dataset):
                         plan_path = os.path.join(self.data_dir, landmark, "plans", plan_name)
                         image_path = os.path.join(self.data_dir, landmark, "images", image_name)
 
-                        plan_xys = image_info["plan_xy"]
-                        image_xys = image_info["image_xy"]
+                        plan_xys = np.int32(image_info["plan_xy"])
+                        image_xys = np.int32(image_info["image_xy"])
                         assert len(plan_xys) == len(image_xys)
                         
                         for i in range(len(plan_xys)):
@@ -73,13 +73,12 @@ class MegaScenesAugmented(Dataset):
         return (len(self.plan_paths))
 
     def __getitem__(self, idx):
-        plan_xy = self.plan_xys_list[idx]
-        image_xy = self.image_xys_list[idx]
+        print(self.plan_paths[idx], self.image_paths[idx], self.plan_xys_list[idx], self.image_xys_list[idx])
         images = load_megascenes_augmented_images(
             [self.plan_paths[idx], self.image_paths[idx]], 
             size=224, 
-            plan_xy=plan_xy,
-            image_xy=image_xy
+            plan_xy=self.plan_xys_list[idx],
+            image_xy=self.image_xys_list[idx]
         )
         view1, view2 = images
         # pairs = make_pairs(images, scene_graph='complete', prefilter=None, symmetrize=True)
@@ -88,14 +87,13 @@ class MegaScenesAugmented(Dataset):
 
 if __name__ == "__main__":
     data_dir = "/share/phoenix/nfs06/S9/kh775/dataset/megascenes_augmented_exhaustive"
-    json_dir = "/share/phoenix/nfs06/S9/kh775/code/wsfm/scripts/data/keypoint_localization/data_test"
+    json_dir = "/share/phoenix/nfs06/S9/kh775/code/wsfm/scripts/data/keypoint_localization/data_test_mini"
     dataset = MegaScenesAugmented(json_dir, data_dir)
-    print(dataset[0][0]["img"].size())
-    print(dataset[0][0]["plan_xy"])
+    print(dataset[0])
 
-    dataloader = DataLoader(dataset)
-    for view1, view2 in dataloader:
-        # print(view1, view2)
-        print(view1["img"].size())
-        print(view1["plan_xy"].size())
-        break
+    # dataloader = DataLoader(dataset)
+    # for view1, view2 in dataloader:
+    #     # print(view1, view2)
+    #     print(view1["img"].size())
+    #     print(view1["plan_xy"].size())
+    #     break
