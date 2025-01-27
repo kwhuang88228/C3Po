@@ -137,7 +137,40 @@ class MultiLoss (nn.Module):
             details |= details2
 
         return loss, details
+    
 
+class PointLoss(MultiLoss):
+    def __init__(self, pixel_loss=nn.MSELoss()):
+        super().__init__()
+        self.pixel_loss = pixel_loss
+
+    def get_name(self):
+        return f'PointLoss({self.pixel_loss})'
+    
+    def compute_loss(self, gt1, gt2, pred1, pred2, **kw):
+        # view1=view2: dict("img": Tensor(BCHW=(4,3,244,244)), "true_shape": Tensor(4,2), "instance": list(4), "plan_xy": Tensor(4,2), "image_xy": Tensor(4,2))
+        # pred1: dict("pts3d": Tensor(BHWC=(4,224,224,3)), "conf": Tensor(BHW=(4,224,224)))
+        # pred2: dict("pts3d_in_other_view": Tensor(BHWC), "conf": Tensor(BHW))
+        gt = gt1["plan_xy"]
+        img_coords = gt1["image_xy"]#.long()
+
+        B, _, _, _ = pred2["pts3d_in_other_view"].size()
+        x_coords = img_coords[:, 0]
+        y_coords = img_coords[:, 1] 
+        x_coords = x_coords.long()
+        y_coords = y_coords.long()
+        try:
+            pred = pred2["pts3d_in_other_view"][torch.arange(B), y_coords, x_coords, :2]
+        except RuntimeError:
+            print(f"pred2[pts3d_in_other_view]: {pred2['pts3d_in_other_view'].size()}")
+            print(f"B: {B}")
+            print(f"torch.arange(B): {torch.arange(B)}")
+            print(f"y_coords: {y_coords}")
+            print(f"x_coords: {x_coords}")
+
+        loss = self.pixel_loss(pred.flatten(), gt.flatten()).float()
+        return loss
+    
 
 class Regr3D (Criterion, MultiLoss):
     """ Ensure that all 3D points are correct.
