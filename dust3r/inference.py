@@ -38,15 +38,19 @@ def loss_of_one_batch(batch, model, criterion, device, symmetrize_batch=False, u
                 continue
             view[name] = view[name].to(device, non_blocking=True)
 
-    if symmetrize_batch:
-        view1, view2 = make_batch_symmetric(batch)
+    # if symmetrize_batch:
+    #     view1, view2 = make_batch_symmetric(batch)
 
     with torch.cuda.amp.autocast(enabled=bool(use_amp)):
         pred1, pred2 = model(view1, view2)
 
         # loss is supposed to be symmetric
         with torch.cuda.amp.autocast(enabled=False):
+
             loss = criterion(view1, view2, pred1, pred2) if criterion is not None else None
+            # view1=view2: dict("img": Tensor(BCHW=(4,3,244,244)), "true_shape": Tensor(4,2), "instance": list(4), "plan_xy": Tensor(4,2), "image_xy": Tensor(4,2))
+            # pred1: dict("pts3d": Tensor(BHWC=(4,224,224,3)), "conf": Tensor(BHW=(4,224,224)))
+            # pred2: dict("pts3d_in_other_view": Tensor(BHWC), "conf": Tensor(BHW))
 
     result = dict(view1=view1, view2=view2, pred1=pred1, pred2=pred2, loss=loss)
     return result[ret] if ret else result
