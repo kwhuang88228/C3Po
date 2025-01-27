@@ -88,7 +88,11 @@ def resize_and_pad(img, coords, size):
     resized_coords = coords * ratio
     offset = np.array([0, (size - H_target) // 2]) if W_target > H_target else np.array([(size - W_target) // 2, 0])
     updated_coords = resized_coords + offset
+    updated_coords = np.clip(updated_coords, 0, size-1)
 
+    assert updated_coords[0] >= 0 and updated_coords[0] < size
+    assert updated_coords[1] >= 0 and updated_coords[1] < size
+        
     return img_resized_padded, updated_coords
 
 def get_scaled_plan(im):
@@ -160,14 +164,25 @@ def load_megascenes_augmented_images(pair, size, plan_xy, image_xy, square_ok=Fa
 
     plan_path, img_path = pair
     image_views = []
-    plan = exif_transpose(PIL.Image.open(plan_path)).convert('RGB')
-    img = exif_transpose(PIL.Image.open(img_path)).convert('RGB')
+    if plan_path.endswith(".gif"):
+        plan = PIL.Image.open(plan_path)
+        plan.seek(plan.n_frames // 2)
+        plan = exif_transpose(plan).convert('RGB')
+    else:
+        plan = exif_transpose(PIL.Image.open(plan_path)).convert('RGB')
+    if img_path.endswith(".gif"):
+        img = PIL.Image.open(img_path)
+        img.seek(img.n_frames // 2)
+        img = exif_transpose(img).convert('RGB')
+    else:
+        img = exif_transpose(PIL.Image.open(img_path)).convert('RGB')
     plan_W1, plan_H1 = plan.size
     img_W1, img_H1 = img.size
     scaled_plan = get_scaled_plan(plan)
 
     plan_resized_padded, plan_xy_updated = resize_and_pad(scaled_plan, plan_xy, size)
     img_resized_padded, image_xy_updated = resize_and_pad(img, image_xy, size)
+
     plan_W2, plan_H2 = plan_resized_padded.size
     img_W2, img_H2 = img_resized_padded.size
 
@@ -194,7 +209,7 @@ if __name__ == "__main__":
     size = 224
     plan_xy = np.array([182, 16])
     image_xy = np.array([793, 743])
-    load_megascenes_augmented_images(folder_or_list, size, plan_xy, image_xy, square_ok=False, verbose=True)
+    image_views = load_megascenes_augmented_images(folder_or_list, size, plan_xy, image_xy, square_ok=False, verbose=True)
 
     # folder_or_list = [
     #     "/share/phoenix/nfs06/S9/kh775/dataset/megascenes_augmented_exhaustive/Església_de_Sant_Feliu_de_Girona/plans/File:Plànol de Sant Feliu.jpg",
