@@ -88,6 +88,16 @@ def get_args_parser():
     parser.add_argument('--output_dir', default='./output/', type=str, help="path where to save the output")
     return parser
 
+# def custom_collate_fn(batch, n=10107):
+#     collate = []
+#     for view1, view2 in batch:
+#         view1["plan_xys"] = F.pad(view1["plan_xys"], (0, 0, 0, n - view1["plan_xys"].shape[0]))
+#         view1["image_xys"] = F.pad(view1["image_xys"], (0, 0, 0, n - view1["image_xys"].shape[0]))
+#         view2["plan_xys"] = view1["plan_xys"]
+#         view2["image_xys"] = view1["image_xys"]
+#         collate.append((view1, view2))
+#     return collate
+
 
 def train(args):
     misc.init_distributed_mode(args)
@@ -115,16 +125,39 @@ def train(args):
 
     cudnn.benchmark = not args.disable_cudnn_benchmark
 
-    # training dataset and loader
-    print('Building train dataset {:s}'.format(args.train_dataset))
-    #  dataset and loader
-    data_loader_train = build_dataset(args.train_dataset, args.batch_size, args.num_workers, test=False)
-    print('Building test dataset {:s}'.format(args.train_dataset))
-    data_loader_test = {dataset.split('(')[0]: build_dataset(dataset, args.batch_size, args.num_workers, test=True)
-                        for dataset in args.test_dataset.split('+')}
+    # # training dataset and loader
+    # print('Building train dataset {:s}'.format(args.train_dataset))
+    # #  dataset and loader
+    # data_loader_train = build_dataset(args.train_dataset, args.batch_size, args.num_workers, test=False)
+    # print('Building test dataset {:s}'.format(args.train_dataset))
+    # data_loader_test = {dataset.split('(')[0]: build_dataset(dataset, args.batch_size, args.num_workers, test=True)
+    #                     for dataset in args.test_dataset.split('+')}
+    data_dir = "/share/phoenix/nfs06/S9/kh775/dataset/megascenes_augmented_exhaustive"
+    train_coords_dir = "/share/phoenix/nfs06/S9/kh775/code/wsfm/scripts/data/keypoint_localization/data_train/coords"
+    test_coords_dir = "/share/phoenix/nfs06/S9/kh775/code/wsfm/scripts/data/keypoint_localization/data_test/coords"
+    from torch.utils.data import DataLoader
+    from dust3r.datasets.megascenes_augmented import MegaScenesAugmented
+    print("Loading training data...")
+    data_train = MegaScenesAugmented(args.train_dataset, data_dir, train_coords_dir)  # B=2, len(dataloader_train)=8204
+    data_loader_train = DataLoader(
+        data_train,
+        batch_size=args.batch_size,
+        num_workers=args.num_workers,
+        pin_memory=True,
+    )
+    print("Training data loaded")
+    print("Loading testing data...")
+    data_test = MegaScenesAugmented(args.test_dataset, data_dir, test_coords_dir)
+    data_loader_test = DataLoader(
+        data_test,
+        batch_size=args.batch_size,
+        num_workers=args.num_workers,
+        pin_memory=True,
+    )
+    print("Test data loaded")
 
     # model
-    print('Loading model: {:s}'.format(args.model))
+    # print('Loading model: {:s}'.format(args.model))
     model = eval(args.model)
     print(f'>> Creating train criterion = {args.train_criterion}')
     train_criterion = eval(args.train_criterion).to(device)
@@ -133,12 +166,12 @@ def train(args):
 
     model.to(device)
     model_without_ddp = model
-    print("Model = %s" % str(model_without_ddp))
+    # print("Model = %s" % str(model_without_ddp))
 
     if args.pretrained and not args.resume:
         print('Loading pretrained: ', args.pretrained)
         ckpt = torch.load(args.pretrained, map_location=device)
-        print(model.load_state_dict(ckpt['model'], strict=False))
+        # print(model.load_state_dict(ckpt['model'], strict=False))
         del ckpt  # in case it occupies memory
 
     eff_batch_size = args.batch_size * args.accum_iter * misc.get_world_size()
@@ -151,7 +184,7 @@ def train(args):
 
     if args.distributed:
         model = torch.nn.parallel.DistributedDataParallel(
-            model, device_ids=[args.gpu], find_unused_parameters=True, static_graph=True)
+            model, device_ids=[args.gpu], find_unused_parameters=True)
         model_without_ddp = model.module
 
     # following timm: set wd as 0 for bias and norm layers
@@ -166,10 +199,9 @@ def train(args):
                 log_writer.flush()
 
             log_stats = dict(epoch=epoch, **{f'train_{k}': v for k, v in train_stats.items()})
-            for test_name in data_loader_test:
-                if test_name not in test_stats:
-                    continue
-                log_stats.update({test_name + '_' + k: v for k, v in test_stats[test_name].items()})
+            with open(os.path.join(args.output_dir, "log.txt"), mode="a", encoding="utf-8") as f:
+                f.write(json.dumps(log_stats) + "\n")
+            log_stats = dict(epoch=epoch, **{f'test_{k}': v for k, v in test_stats.items()})
 
             with open(os.path.join(args.output_dir, "log.txt"), mode="a", encoding="utf-8") as f:
                 f.write(json.dumps(log_stats) + "\n")
@@ -201,15 +233,17 @@ def train(args):
         new_best = False
         if (epoch > 0 and args.eval_freq > 0 and epoch % args.eval_freq == 0):
             test_stats = {}
-            for test_name, testset in data_loader_test.items():
-                stats = test_one_epoch(model, test_criterion, testset,
-                                       device, epoch, log_writer=log_writer, args=args, prefix=test_name)
-                test_stats[test_name] = stats
+            # test_name = args.test_dataset.split("/")[-1]
+            test_name = "test"
+            # for test_name, testset in data_loader_test.items():
+            stats = test_one_epoch(model, test_criterion, data_loader_test,
+                                    device, epoch, log_writer=log_writer, args=args, prefix=test_name)
+            test_stats[test_name] = stats
 
-                # Save best of all
-                if stats['loss_med'] < best_so_far:
-                    best_so_far = stats['loss_med']
-                    new_best = True
+            # Save best of all
+            if stats['loss_avg'] < best_so_far:
+                best_so_far = stats['loss_avg']
+                new_best = True
 
         # Save more stuff
         write_log_stats(epoch, train_stats, test_stats)
@@ -223,6 +257,7 @@ def train(args):
             break  # exit after writing last test to disk
 
         # Train
+        print("Starting training...")
         train_stats = train_one_epoch(
             model, train_criterion, data_loader_train,
             optimizer, device, epoch, loss_scaler,
@@ -263,6 +298,37 @@ def build_dataset(dataset, batch_size, num_workers, test=False):
     print(f"{split} dataset length: ", len(loader))
     return loader
 
+import PIL.Image
+import PIL.ImageDraw
+def get_viz(view1, view2, pred1, pred2):
+    def overlay_points(image, points):
+        image = image.permute(1, 2, 0).cpu().numpy()
+        image = (image * 255).astype(np.uint8)
+        pil_image = PIL.Image.fromarray(image)
+        draw = PIL.ImageDraw.Draw(pil_image)
+        for (x, y) in points:
+            draw.point((x, y), fill=(255, 0, 0))  # Red points
+        return torch.tensor(np.array(pil_image))
+    batch, _, size, _ = view1["img"].size()
+    for b in range(batch):
+        view1_img = view1["img"][b]
+        view2_img = view2["img"][b]
+        view1_points = view1["plan_xys"][0]
+        view2_points = view2["image_xys"][0]
+        pred2_points = pred2["pts3d_in_other_view"][0]
+        x_coords = view2["image_xys"][0][:,0]
+        y_coords = view2["image_xys"][0][:,1]
+        pred2_points = pred2_points[y_coords, x_coords, :2]
+        assert pred2_points.size() == view1_points.size()
+        view1_overlay = overlay_points(view1_img, view1_points)
+        view2_overlay = overlay_points(view2_img, view2_points)
+        pred2_overlay = overlay_points(view1_img, pred2_points)
+        view1_overlay = torch.from_numpy(np.array(view1_overlay)).permute(2, 0, 1).float() / 255.0
+        view2_overlay = torch.from_numpy(np.array(view2_overlay)).permute(2, 0, 1).float() / 255.0
+        pred2_overlay = torch.from_numpy(np.array(pred2_overlay)).permute(2, 0, 1).float() / 255.0
+        combined_overlay = torch.cat((view1_overlay, pred2_overlay), dim=2)
+        combined_overlay = torch.cat((combined_overlay, view2_overlay), dim=2)
+    return combined_overlay
 
 def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                     data_loader: Sized, optimizer: torch.optim.Optimizer,
@@ -294,10 +360,10 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
         if data_iter_step % accum_iter == 0:
             misc.adjust_learning_rate(optimizer, epoch_f, args)
 
-        loss_tuple = loss_of_one_batch(batch, model, criterion, device,
+        result = loss_of_one_batch(batch, model, criterion, device,
                                        symmetrize_batch=True,
-                                       use_amp=bool(args.amp), ret='loss')
-        loss, loss_details = loss_tuple  # criterion returns two values
+                                       use_amp=bool(args.amp))
+        loss, loss_details = result["loss"]
         loss_value = float(loss)
 
         if not math.isfinite(loss_value):
@@ -318,7 +384,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
         metric_logger.update(lr=lr)
         metric_logger.update(loss=loss_value, **loss_details)
 
-        if (data_iter_step + 1) % accum_iter == 0 and ((data_iter_step + 1) % (accum_iter * args.print_freq)) == 0:
+        if (data_iter_step + 1) % accum_iter == 0: # and ((data_iter_step + 1) % (accum_iter * args.print_freq)) == 0:
             loss_value_reduce = misc.all_reduce_mean(loss_value)  # MUST BE EXECUTED BY ALL NODES
             if log_writer is None:
                 continue
@@ -329,8 +395,12 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
             log_writer.add_scalar('train_loss', loss_value_reduce, epoch_1000x)
             log_writer.add_scalar('train_lr', lr, epoch_1000x)
             log_writer.add_scalar('train_iter', epoch_1000x, epoch_1000x)
-            for name, val in loss_details.items():
-                log_writer.add_scalar('train_' + name, val, epoch_1000x)
+            # for name, val in loss_details.items():
+            #     log_writer.add_scalar('train_' + name, val, epoch_1000x)
+        if data_iter_step == 0 or (data_iter_step + 1) % 10 == 0:
+            viz = get_viz(result["view1"], result["view2"], result["pred1"], result["pred2"])
+            log_writer.add_image('train_sample', viz, epoch_1000x)
+            # print("Added image to log_writer")
 
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
@@ -357,21 +427,29 @@ def test_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
         data_loader.sampler.set_epoch(epoch)
 
     for _, batch in enumerate(metric_logger.log_every(data_loader, args.print_freq, header)):
-        loss_tuple = loss_of_one_batch(batch, model, criterion, device,
+        result = loss_of_one_batch(batch, model, criterion, device,
                                        symmetrize_batch=True,
-                                       use_amp=bool(args.amp), ret='loss')
-        loss_value, loss_details = loss_tuple  # criterion returns two values
-        metric_logger.update(loss=float(loss_value), **loss_details)
+                                       use_amp=bool(args.amp))
+        loss_value, loss_details = result["loss"]  # criterion returns two values
+        metric_logger.update(loss=float(loss_value))
+        # loss_value, loss_details = loss_tuple  # criterion returns two values
+        # metric_logger.update(loss=float(loss_value), **loss_details)
 
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
     print("Averaged stats:", metric_logger)
 
-    aggs = [('avg', 'global_avg'), ('med', 'median')]
+    aggs = [('avg', 'global_avg')]
     results = {f'{k}_{tag}': getattr(meter, attr) for k, meter in metric_logger.meters.items() for tag, attr in aggs}
+
+    print(results)
+    print(results.keys())
+    #  'loss_avg': 9177.31206644813, 'loss_med': 7096.86865234375, 'PointfLoss(MSELoss())_avg': 9177.31206644813, 'PointfLoss(MSELoss())_med': 7096.86865234375}
+    # [11:10:57.758835] dict_keys(['loss_avg', 'loss_med', 'PointfLoss(MSELoss())_avg', 'PointfLoss(MSELoss())_med'])
 
     if log_writer is not None:
         for name, val in results.items():
+            print(prefix, name, val, 1000*epoch)
             log_writer.add_scalar(prefix + '_' + name, val, 1000 * epoch)
 
     return results
