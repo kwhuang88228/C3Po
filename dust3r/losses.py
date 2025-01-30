@@ -147,28 +147,47 @@ class PointLoss(MultiLoss):
     def get_name(self):
         return f'PointLoss({self.pixel_loss})'
     
+    def get_last_non_zero_indices(self, xys):
+        last_non_zero_indices = []
+        for batch in xys:
+            for idx in range(len(batch) - 1, -1, -1):
+                if not torch.all(batch[idx] == torch.tensor([0, 0]).cuda()):
+                    last_non_zero_indices.append(idx)
+                    break
+        return last_non_zero_indices
+
+    
     def compute_loss(self, gt1, gt2, pred1, pred2, **kw):
         # view1=view2: dict("img": Tensor(BCHW=(4,3,244,244)), "true_shape": Tensor(4,2), "instance": list(4), "plan_xy": Tensor(4,2), "image_xy": Tensor(4,2))
         # pred1: dict("pts3d": Tensor(BHWC=(4,224,224,3)), "conf": Tensor(BHW=(4,224,224)))
         # pred2: dict("pts3d_in_other_view": Tensor(BHWC), "conf": Tensor(BHW))
-        gt = gt1["plan_xy"]
-        img_coords = gt1["image_xy"]#.long()
+        plan_xys_with_pad = gt1["plan_xys"]            #(B,max_xy_len,2)
+        img_xys_with_pad = gt1["image_xys"]   #(B,max_xy_len,2)
+        last_non_zero_indices = self.get_last_non_zero_indices(img_xys_with_pad)
+        preds = torch.Tensor([]).cuda()
+        gts = torch.Tensor([]).cuda()
 
-        B, _, _, _ = pred2["pts3d_in_other_view"].size()
-        x_coords = img_coords[:, 0]
-        y_coords = img_coords[:, 1] 
-        x_coords = x_coords.long()
-        y_coords = y_coords.long()
-        try:
-            pred = pred2["pts3d_in_other_view"][torch.arange(B), y_coords, x_coords, :2]
-        except RuntimeError:
-            print(f"pred2[pts3d_in_other_view]: {pred2['pts3d_in_other_view'].size()}")
-            print(f"B: {B}")
-            print(f"torch.arange(B): {torch.arange(B)}")
-            print(f"y_coords: {y_coords}")
-            print(f"x_coords: {x_coords}")
 
-        loss = self.pixel_loss(pred.flatten(), gt.flatten()).float()
+        for b, p in enumerate(pred2["pts3d_in_other_view"]):
+            # pred: (HWC)
+            img_xys = img_xys_with_pad[b][:last_non_zero_indices[b],:]
+            plan_xys = plan_xys_with_pad[b][:last_non_zero_indices[b],:]
+            x_coords = img_xys[:, 0]
+            y_coords = img_xys[:, 1] 
+            x_coords = x_coords.long()
+            y_coords = y_coords.long()
+            pred = p[y_coords, x_coords, :2]
+            preds = torch.cat((preds, pred.flatten()))
+            gts = torch.cat((gts, plan_xys.flatten()))
+
+        # B, _, _, _ = pred2["pts3d_in_other_view"].size()
+        # x_coords = img_coords[:, 0]
+        # y_coords = img_coords[:, 1] 
+        # x_coords = x_coords.long()
+        # y_coords = y_coords.long()
+        
+        # pred = pred2["pts3d_in_other_view"][torch.arange(B), y_coords, x_coords, :2]
+        loss = self.pixel_loss(preds, gts).float()
         return loss
     
 
