@@ -5,11 +5,13 @@
 # utilitary functions about images (loading/converting...)
 # --------------------------------------------------------
 import os
-import torch
+
 import numpy as np
 import PIL.Image
-from PIL.ImageOps import exif_transpose
+import torch
 import torchvision.transforms as tvf
+from PIL.ImageOps import exif_transpose
+
 os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
 import cv2  # noqa
 
@@ -89,9 +91,6 @@ def resize_and_pad(img, coords, size):
     offset = np.array([0, (size - H_target) // 2]) if W_target > H_target else np.array([(size - W_target) // 2, 0])
     updated_coords = resized_coords + offset
     updated_coords = np.clip(updated_coords, 0, size-1)
-
-    assert updated_coords[0] >= 0 and updated_coords[0] < size
-    assert updated_coords[1] >= 0 and updated_coords[1] < size
         
     return img_resized_padded, updated_coords
 
@@ -157,7 +156,7 @@ def load_images(folder_or_list, size, square_ok=False, verbose=True):
         print(f' (Found {len(imgs)} images)')
     return imgs
 
-def load_megascenes_augmented_images(pair, size, plan_xy, image_xy, square_ok=False, verbose=True):
+def load_megascenes_augmented_images(pair, size, plan_xys, image_xys, max_xys_len, square_ok=False, verbose=True):
     """ open and convert all images in a list or folder to proper input format for DUSt3R
     """
     import matplotlib.pyplot as plt
@@ -180,8 +179,10 @@ def load_megascenes_augmented_images(pair, size, plan_xy, image_xy, square_ok=Fa
     img_W1, img_H1 = img.size
     scaled_plan = get_scaled_plan(plan)
 
-    plan_resized_padded, plan_xy_updated = resize_and_pad(scaled_plan, plan_xy, size)
-    img_resized_padded, image_xy_updated = resize_and_pad(img, image_xy, size)
+    plan_resized_padded, plan_xys_updated = resize_and_pad(scaled_plan, plan_xys, size)
+    img_resized_padded, image_xys_updated = resize_and_pad(img, image_xys, size)
+    plan_xys_padded = np.pad(plan_xys_updated, ((0, max_xys_len - plan_xys_updated.shape[0]), (0, 0)), mode="constant", constant_values=0)
+    image_xys_padded = np.pad(image_xys_updated, ((0, max_xys_len - image_xys_updated.shape[0]), (0, 0)), mode="constant", constant_values=0)
 
     plan_W2, plan_H2 = plan_resized_padded.size
     img_W2, img_H2 = img_resized_padded.size
@@ -191,10 +192,10 @@ def load_megascenes_augmented_images(pair, size, plan_xy, image_xy, square_ok=Fa
         print(f' - adding {img_path} with resolution {img_W1}x{img_H1} --> {img_W2}x{img_H2}')
     image_views.append(dict(img=ImgNorm(plan_resized_padded), true_shape=np.int32(
         plan_resized_padded.size[::-1]), idx=len(image_views), instance=str(len(image_views)), 
-        plan_xy=np.int32(plan_xy_updated), image_xy=np.int32(image_xy_updated)))
+        plan_xys=np.int32(plan_xys_padded), image_xys=np.int32(image_xys_padded)))
     image_views.append(dict(img=ImgNorm(img_resized_padded), true_shape=np.int32(
         img_resized_padded.size[::-1]), idx=len(image_views), instance=str(len(image_views)), 
-        plan_xy=np.int32(plan_xy_updated), image_xy=np.int32(image_xy_updated)))
+        plan_xys=np.int32(plan_xys_padded), image_xys=np.int32(image_xys_padded)))
 
     if verbose:
         print(f' (Found {len(image_views)} images)')
@@ -203,20 +204,22 @@ def load_megascenes_augmented_images(pair, size, plan_xy, image_xy, square_ok=Fa
 
 if __name__ == "__main__":
     folder_or_list = [
-        "/share/phoenix/nfs06/S9/kh775/dataset/megascenes_augmented_exhaustive/Església_de_Sant_Feliu_de_Girona/plans/File:Plànol de Sant Feliu.jpg", 
-        "/share/phoenix/nfs06/S9/kh775/dataset/megascenes_augmented_exhaustive/Església_de_Sant_Feliu_de_Girona/images/commons/Apses_of_the_Església_de_Sant_Feliu_de_Girona/0/pictures/174 Basílica de Sant Feliu, absis i façana est, pujada del Rei Martí (Girona).jpg"
+        "/share/phoenix/nfs06/S9/kh775/dataset/megascenes_augmented_exhaustive/Tower_of_London/plans/File:14 of '(Memorials of the Tower of London ... With illustrations.)' (11083417374).jpg",
+        "/share/phoenix/nfs06/S9/kh775/dataset/megascenes_augmented_exhaustive/Tower_of_London/images/commons/Tower_of_London/0/pictures/St Katharine's ^ Wapping, London, UK - panoramio (30).jpg"
     ]
     size = 224
-    plan_xy = np.array([182, 16])
-    image_xy = np.array([793, 743])
-    image_views = load_megascenes_augmented_images(folder_or_list, size, plan_xy, image_xy, square_ok=False, verbose=True)
+    xys = np.load("/share/phoenix/nfs06/S9/kh775/code/wsfm/scripts/data/keypoint_localization/data_train/coords/00000000.npy")
+    plan_xys = xys[0]
+    image_xys = xys[1]
+    image_views = load_megascenes_augmented_images(folder_or_list, size, plan_xys, image_xys, square_ok=False, verbose=True)
 
     # folder_or_list = [
-    #     "/share/phoenix/nfs06/S9/kh775/dataset/megascenes_augmented_exhaustive/Església_de_Sant_Feliu_de_Girona/plans/File:Plànol de Sant Feliu.jpg",
-    #     "/share/phoenix/nfs06/S9/kh775/dataset/megascenes_augmented_exhaustive/Església_de_Sant_Feliu_de_Girona/images/commons/Apses_of_the_Església_de_Sant_Feliu_de_Girona/0/pictures/174 Basílica de Sant Feliu, absis i façana est, pujada del Rei Martí (Girona).jpg"
+    #     "/share/phoenix/nfs06/S9/kh775/dataset/megascenes_augmented_exhaustive/Tower_of_London/plans/File:14 of '(Memorials of the Tower of London ... With illustrations.)' (11083417374).jpg",
+    #     "/share/phoenix/nfs06/S9/kh775/dataset/megascenes_augmented_exhaustive/Tower_of_London/images/commons/Tower_of_London/0/pictures/The Red Tower of London - panoramio.jpg"
     # ]
     # size = 224
-    # plan_xy = np.array([168, 13])
-    # image_xy = np.array([1002, 246])
-    # load_megascenes_augmented_images(folder_or_list, size, plan_xy, image_xy, square_ok=False, verbose=True)
+    # xys = np.load("/share/phoenix/nfs06/S9/kh775/code/wsfm/scripts/data/keypoint_localization/data_train/coords/00000001.npy")
+    # plan_xys = xys[0]
+    # image_xys = xys[1]
+    # load_megascenes_augmented_images(folder_or_list, size, plan_xys, image_xys, square_ok=False, verbose=True)
 
