@@ -1,10 +1,13 @@
+import csv
 import json
 import os
+from os.path import join
 import sys
 
 import numpy as np
 import PIL.Image
 import torch
+from tqdm import tqdm
 
 sys.path.append(os.path.dirname("/share/phoenix/nfs06/S9/kh775/code/dust3r/dust3r"))
 from dust3r.image_pairs import make_pairs
@@ -13,72 +16,36 @@ from torch.utils.data import DataLoader, Dataset
 
 
 class MegaScenesAugmented(Dataset):
-    def __init__(self, json_dir, data_dir):
-        self.json_dir = json_dir
+    def __init__(self, image_pairs_path, data_dir, npx_dir):
+        self.image_pairs = []
+        self.load_image_pairs(image_pairs_path)
         self.data_dir = data_dir
-        self.mappings = self.load_mappings()
-
-        self.plan_paths = []
-        self.image_paths = []
-        self.plan_xys_list = []
-        self.image_xys_list = []
-        self.load_paths()
+        self.npx_dir = npx_dir
         
-    def load_mappings(self):
-        mappings = dict()
-
-        for json_file in sorted(os.listdir(self.json_dir)):
-            if json_file.endswith(".json"):
-                json_file_path = os.path.join(self.json_dir, json_file)
-
-                with open(json_file_path, "r") as f:
-                    data = json.load(f)
-
-                    for landmark in data:
-                        if landmark not in mappings:
-                            mappings[landmark] = data[landmark]
-                        else:
-                            mappings[landmark].update(data[landmark])
-
-        return mappings
-
-    def load_paths(self):
-        for landmark in sorted(self.mappings):
-            for comp in sorted(self.mappings[landmark]):
-                for plan in sorted(self.mappings[landmark][comp]):
-                    for image_id in sorted(self.mappings[landmark][comp][plan]):
-                        image_info = self.mappings[landmark][comp][plan][image_id]
-                        plan_name = image_info["plan_name"]
-                        image_name = image_info["image_name"]
-                        plan_path = os.path.join(self.data_dir, landmark, "plans", plan_name)
-                        image_path = os.path.join(self.data_dir, landmark, "images", image_name)
-
-                        plan_xys = np.int32(image_info["plan_xy"])
-                        image_xys = np.int32(image_info["image_xy"])
-                        assert len(plan_xys) == len(image_xys)
-                        
-                        for i in range(len(plan_xys)):
-                            plan_xy = plan_xys[i]
-                            image_xy = image_xys[i]
-                        
-                            self.plan_paths.append(plan_path)
-                            self.image_paths.append(image_path)
-                            self.plan_xys_list.append(plan_xy)
-                            self.image_xys_list.append(image_xy)
-
+    def load_image_pairs(self, image_pairs_path):
+        print("Loading image pairs...")
+        with open(image_pairs_path, "r") as f:
+            reader = csv.reader(f)
+            self.image_pairs = [row for row in reader]
+        print(f"{len(self.image_pairs)} image pairs loaded")
+        
     def __len__(self):
-        assert len(self.plan_paths) == len(self.image_paths)
-        assert len(self.plan_xys_list) == len(self.image_xys_list)
-
-        return (len(self.plan_paths))
+        return (len(self.image_pairs))
 
     def __getitem__(self, idx):
-        print(self.plan_paths[idx], self.image_paths[idx], self.plan_xys_list[idx], self.image_xys_list[idx])
+        i, landmark, comp, plan_name, image_name = self.image_pairs[idx]
+        plan_path = join(self.data_dir, landmark, "plans", plan_name)
+        image_path = join(self.data_dir,  landmark, "images", image_name)
+        xys_path = join(self.npx_dir, f"{int(i):08}.npy")
+        xys = np.load(xys_path)
+
         images = load_megascenes_augmented_images(
-            [self.plan_paths[idx], self.image_paths[idx]], 
+            [plan_path, image_path], 
             size=224, 
-            plan_xy=self.plan_xys_list[idx],
-            image_xy=self.image_xys_list[idx]
+            plan_xys=xys[0],
+            image_xys=xys[1], 
+            max_xys_len=10107,
+            verbose=False
         )
         view1, view2 = images
         # pairs = make_pairs(images, scene_graph='complete', prefilter=None, symmetrize=True)
@@ -86,14 +53,20 @@ class MegaScenesAugmented(Dataset):
 
 
 if __name__ == "__main__":
+    image_pairs_path = "/share/phoenix/nfs06/S9/kh775/code/wsfm/scripts/data/keypoint_localization/data_train/image_pairs.csv"
     data_dir = "/share/phoenix/nfs06/S9/kh775/dataset/megascenes_augmented_exhaustive"
-    json_dir = "/share/phoenix/nfs06/S9/kh775/code/wsfm/scripts/data/keypoint_localization/data_test_mini"
-    dataset = MegaScenesAugmented(json_dir, data_dir)
-    print(dataset[0])
+    coords_dir = "/share/phoenix/nfs06/S9/kh775/code/wsfm/scripts/data/keypoint_localization/data_train/coords"
+    dataset = MegaScenesAugmented(image_pairs_path, data_dir, coords_dir)
 
-    # dataloader = DataLoader(dataset)
-    # for view1, view2 in dataloader:
-    #     # print(view1, view2)
-    #     print(view1["img"].size())
-    #     print(view1["plan_xy"].size())
-    #     break
+    dataloader = DataLoader(dataset)
+    max_s = 0
+    for view1, view2 in tqdm(dataloader):
+        # print(view1, view2)
+        # print(view1["img"].size(), view2["img"].size())
+        _, s, _ = view1["plan_xys"].size()
+        
+        if s > max_s:
+            max_s = s
+    
+    print(max_s)
+        
