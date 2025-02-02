@@ -172,21 +172,19 @@ class PointLoss(MultiLoss):
             # pred: (HWC)
             img_xys = img_xys_with_pad[b][:last_non_zero_indices[b],:]
             plan_xys = plan_xys_with_pad[b][:last_non_zero_indices[b],:]
+
             x_coords = img_xys[:, 0]
             y_coords = img_xys[:, 1] 
             x_coords = x_coords.long()
             y_coords = y_coords.long()
             pred = p[y_coords, x_coords, :2]
-            preds = torch.cat((preds, pred.flatten()))
+            pred_min = pred.min()
+            pred_max = pred.max()
+            pred_norm_scaled = (pred - pred_min) / (pred_max - pred_min) * 255.
+
+            preds = torch.cat((preds, pred_norm_scaled.flatten()))
             gts = torch.cat((gts, plan_xys.flatten()))
 
-        # B, _, _, _ = pred2["pts3d_in_other_view"].size()
-        # x_coords = img_coords[:, 0]
-        # y_coords = img_coords[:, 1] 
-        # x_coords = x_coords.long()
-        # y_coords = y_coords.long()
-        
-        # pred = pred2["pts3d_in_other_view"][torch.arange(B), y_coords, x_coords, :2]
         loss = self.pixel_loss(preds, gts).float()
         return loss
     
