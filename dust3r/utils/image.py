@@ -166,23 +166,38 @@ def load_megascenes_augmented_images(pair, size, plan_xys, image_xys, max_xys_le
     if plan_path.endswith(".gif"):
         plan = PIL.Image.open(plan_path)
         plan.seek(plan.n_frames // 2)
-        plan = exif_transpose(plan).convert('RGB')
+        plan = plan.convert('RGB')
     else:
-        plan = exif_transpose(PIL.Image.open(plan_path)).convert('RGB')
+        plan = PIL.Image.open(plan_path).convert('RGB')
     if img_path.endswith(".gif"):
         img = PIL.Image.open(img_path)
         img.seek(img.n_frames // 2)
-        img = exif_transpose(img).convert('RGB')
+        img = img.convert('RGB')
     else:
-        img = exif_transpose(PIL.Image.open(img_path)).convert('RGB')
+        img = PIL.Image.open(img_path).convert('RGB')
     plan_W1, plan_H1 = plan.size
     img_W1, img_H1 = img.size
     scaled_plan = get_scaled_plan(plan)
+
+    # plt.imshow(scaled_plan)
+    # plt.savefig(os.path.join("/share/phoenix/nfs06/S9/kh775/code/dust3r/dust3r/utils/test/2", plan_path.split("/")[-1]))
+    # plt.close
+    # plt.imshow(img)
+    # plt.savefig(os.path.join("/share/phoenix/nfs06/S9/kh775/code/dust3r/dust3r/utils/test/2", img_path.split("/")[-1]))
+    # plt.close
 
     plan_resized_padded, plan_xys_updated = resize_and_pad(scaled_plan, plan_xys, size)
     img_resized_padded, image_xys_updated = resize_and_pad(img, image_xys, size)
     plan_xys_padded = np.pad(plan_xys_updated, ((0, max_xys_len - plan_xys_updated.shape[0]), (0, 0)), mode="constant", constant_values=0)
     image_xys_padded = np.pad(image_xys_updated, ((0, max_xys_len - image_xys_updated.shape[0]), (0, 0)), mode="constant", constant_values=0)
+
+    # plt.imshow(plan_resized_padded)
+    # plt.savefig(os.path.join("/share/phoenix/nfs06/S9/kh775/code/dust3r/dust3r/utils/test/2", "resized_"+plan_path.split("/")[-1]))
+    # plt.close
+    # plt.imshow(img_resized_padded)
+    # plt.savefig(os.path.join("/share/phoenix/nfs06/S9/kh775/code/dust3r/dust3r/utils/test/2", "resized_"+img_path.split("/")[-1]))
+    # plt.close
+
 
     plan_W2, plan_H2 = plan_resized_padded.size
     img_W2, img_H2 = img_resized_padded.size
@@ -203,15 +218,15 @@ def load_megascenes_augmented_images(pair, size, plan_xys, image_xys, max_xys_le
 
 
 if __name__ == "__main__":
-    folder_or_list = [
-        "/share/phoenix/nfs06/S9/kh775/dataset/megascenes_augmented_exhaustive/Tower_of_London/plans/File:14 of '(Memorials of the Tower of London ... With illustrations.)' (11083417374).jpg",
-        "/share/phoenix/nfs06/S9/kh775/dataset/megascenes_augmented_exhaustive/Tower_of_London/images/commons/Tower_of_London/0/pictures/St Katharine's ^ Wapping, London, UK - panoramio (30).jpg"
-    ]
-    size = 224
-    xys = np.load("/share/phoenix/nfs06/S9/kh775/code/wsfm/scripts/data/keypoint_localization/data_train/coords/00000000.npy")
-    plan_xys = xys[0]
-    image_xys = xys[1]
-    image_views = load_megascenes_augmented_images(folder_or_list, size, plan_xys, image_xys, square_ok=False, verbose=True)
+    # folder_or_list = [
+    #     "/share/phoenix/nfs06/S9/kh775/dataset/megascenes_augmented_exhaustive/Tower_of_London/plans/File:14 of '(Memorials of the Tower of London ... With illustrations.)' (11083417374).jpg",
+    #     "/share/phoenix/nfs06/S9/kh775/dataset/megascenes_augmented_exhaustive/Tower_of_London/images/commons/Tower_of_London/0/pictures/St Katharine's ^ Wapping, London, UK - panoramio (30).jpg"
+    # ]
+    # size = 224
+    # xys = np.load("/share/phoenix/nfs06/S9/kh775/code/wsfm/scripts/data/keypoint_localization/data_train/coords/00000000.npy")
+    # plan_xys = xys[0]
+    # image_xys = xys[1]
+    # image_views = load_megascenes_augmented_images(folder_or_list, size, plan_xys, image_xys, square_ok=False, verbose=True)
 
     # folder_or_list = [
     #     "/share/phoenix/nfs06/S9/kh775/dataset/megascenes_augmented_exhaustive/Tower_of_London/plans/File:14 of '(Memorials of the Tower of London ... With illustrations.)' (11083417374).jpg",
@@ -222,4 +237,17 @@ if __name__ == "__main__":
     # plan_xys = xys[0]
     # image_xys = xys[1]
     # load_megascenes_augmented_images(folder_or_list, size, plan_xys, image_xys, square_ok=False, verbose=True)
+
+    # folder_or_list = [
+    #     "/share/phoenix/nfs06/S9/kh775/dataset/megascenes_augmented_exhaustive/Abbatiale_d'Ottmarsheim/plans/File:Ottmarsheim oben.jpg",
+    #     "/share/phoenix/nfs06/S9/kh775/dataset/megascenes_augmented_exhaustive/Abbatiale_d'Ottmarsheim/images/commons/Abbatiale_d'Ottmarsheim/0/pictures/Abbatiale Saint Pierre et Saint Paul.jpg"
+    # ]
+    # size = 224
+    # xys = np.load("/share/phoenix/nfs06/S9/kh775/code/wsfm/scripts/data/keypoint_localization/data_train/one_plan_2/coords/00000000.npy")
+    # plan_xys = xys[0]
+    # image_xys = xys[1]
+    # image_views = load_megascenes_augmented_images(folder_or_list, size, plan_xys, image_xys, square_ok=False, verbose=True)
+
+    pass
+
 

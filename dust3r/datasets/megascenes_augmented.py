@@ -1,7 +1,5 @@
 import csv
-import json
 import os
-from os.path import join
 import sys
 
 import numpy as np
@@ -21,6 +19,8 @@ class MegaScenesAugmented(Dataset):
         self.load_image_pairs(image_pairs_path)
         self.data_dir = data_dir
         self.npx_dir = npx_dir
+        self.max_xys_len = 0
+        self.get_max_xys_len()
         
     def load_image_pairs(self, image_pairs_path):
         print("Loading image pairs...")
@@ -28,23 +28,33 @@ class MegaScenesAugmented(Dataset):
             reader = csv.reader(f)
             self.image_pairs = [row for row in reader]
         print(f"{len(self.image_pairs)} image pairs loaded")
-        
+
+    def get_max_xys_len(self):
+        print("Calculating max_xys_len...")
+        self.max_xys_len = 0
+        for file_name in os.listdir(self.npx_dir):
+            npx_path = os.path.join(self.npx_dir, file_name)
+            xys = np.load(npx_path)
+            xys_len = xys[0].shape[0]
+            if xys_len > self.max_xys_len:
+                self.max_xys_len = xys_len
+        print(f"max_xys_len: {self.max_xys_len}")
+
     def __len__(self):
         return (len(self.image_pairs))
 
     def __getitem__(self, idx):
         i, landmark, comp, plan_name, image_name = self.image_pairs[idx]
-        plan_path = join(self.data_dir, landmark, "plans", plan_name)
-        image_path = join(self.data_dir,  landmark, "images", image_name)
-        xys_path = join(self.npx_dir, f"{int(i):08}.npy")
+        plan_path = os.path.join(self.data_dir, landmark, "plans", plan_name)
+        image_path = os.path.join(self.data_dir,  landmark, "images", image_name)
+        xys_path = os.path.join(self.npx_dir, f"{int(i):08}.npy")
         xys = np.load(xys_path)
-
         images = load_megascenes_augmented_images(
             [plan_path, image_path], 
             size=224, 
             plan_xys=xys[0],
             image_xys=xys[1], 
-            max_xys_len=10107,
+            max_xys_len=self.max_xys_len,
             verbose=False
         )
         view1, view2 = images
