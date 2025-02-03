@@ -14,6 +14,7 @@ import datetime
 import json
 import numpy as np
 import os
+from os.path import join
 import sys
 import time
 import math
@@ -88,15 +89,39 @@ def get_args_parser():
     parser.add_argument('--output_dir', default='./output/', type=str, help="path where to save the output")
     return parser
 
-# def custom_collate_fn(batch, n=10107):
-#     collate = []
-#     for view1, view2 in batch:
-#         view1["plan_xys"] = F.pad(view1["plan_xys"], (0, 0, 0, n - view1["plan_xys"].shape[0]))
-#         view1["image_xys"] = F.pad(view1["image_xys"], (0, 0, 0, n - view1["image_xys"].shape[0]))
-#         view2["plan_xys"] = view1["plan_xys"]
-#         view2["image_xys"] = view1["image_xys"]
-#         collate.append((view1, view2))
-#     return collate
+
+def collate_fn(batch):  # batch:[(view1, view2) * batch_size]
+    # print(view1["img"].size(), view1["plan_xys"].size())  # Should be torch.Size([8, 3, 224, 224]) torch.Size([8, 733, 2])   
+    print("in collate_fn...")
+    max_xys_len = max(item[0]["plan_xys"].shape[0] for item in batch)
+    print(f"max_xys_len: {max_xys_len}")
+    
+    view1_img_batched = []
+    view2_img_batched = [] 
+    plan_xys_batched = []
+    image_xys_batched = []
+    for view1, view2 in batch:  #(['img', 'plan_xys', 'image_xys'])
+        view1_img_batched.append(torch.Tensor(view1["img"]))
+        view2_img_batched.append(torch.Tensor(view2["img"]))
+
+        plan_xys_batched.append(torch.from_numpy(np.pad(view1["plan_xys"], ((0, max_xys_len - view1["plan_xys"].shape[0]), (0, 0)), mode="constant", constant_values=0)))
+        image_xys_batched.append(torch.from_numpy(np.pad(view1["image_xys"], ((0, max_xys_len - view1["image_xys"].shape[0]), (0, 0)), mode="constant", constant_values=0)))
+
+    view1_img_batched = torch.stack(view1_img_batched)
+    view2_img_batched = torch.stack(view2_img_batched)
+    plan_xys_batched = torch.stack(plan_xys_batched)
+    image_xys_batched = torch.stack(image_xys_batched)
+    final_view1 = dict(
+        img=view1_img_batched, 
+        plan_xys=plan_xys_batched,
+        image_xys=image_xys_batched
+    )
+    final_view2 = dict(       
+        img=view2_img_batched,
+        plan_xys=plan_xys_batched,
+        image_xys=image_xys_batched
+    )
+    return final_view1, final_view2
 
 
 def train(args):
@@ -133,24 +158,31 @@ def train(args):
     # data_loader_test = {dataset.split('(')[0]: build_dataset(dataset, args.batch_size, args.num_workers, test=True)
     #                     for dataset in args.test_dataset.split('+')}
     data_dir = "/share/phoenix/nfs06/S9/kh775/dataset/megascenes_augmented_exhaustive"
-    train_coords_dir = "/share/phoenix/nfs06/S9/kh775/code/wsfm/scripts/data/keypoint_localization/data_train/coords"
-    test_coords_dir = "/share/phoenix/nfs06/S9/kh775/code/wsfm/scripts/data/keypoint_localization/data_test/coords"
     from torch.utils.data import DataLoader
     from dust3r.datasets.megascenes_augmented import MegaScenesAugmented
     print("Loading training data...")
-    data_train = MegaScenesAugmented(args.train_dataset, data_dir, train_coords_dir)  # B=2, len(dataloader_train)=8204
+    data_train = MegaScenesAugmented(join(args.train_dataset, "image_pairs.csv"), data_dir, join(args.train_dataset, "coords"))  # B=2, len(dataloader_train)=8204
     data_loader_train = DataLoader(
         data_train,
         batch_size=args.batch_size,
+        collate_fn=collate_fn,
         num_workers=args.num_workers,
         pin_memory=True,
     )
+    # for batch in data_loader_train:
+    #     view1, view2 = batch
+    #     print(view1["img"])
+    #     print(view2["img"])
+    #     print(view1["img"].size(), view1["plan_xys"].size())  # Should be torch.Size([8, 3, 224, 224]) torch.Size([8, 733, 2])   
+    #     break
+    # raise Exception
     print("Training data loaded")
     print("Loading testing data...")
-    data_test = MegaScenesAugmented(args.test_dataset, data_dir, test_coords_dir)
+    data_test = MegaScenesAugmented(join(args.test_dataset, "image_pairs.csv"), data_dir, join(args.test_dataset, "coords"))
     data_loader_test = DataLoader(
         data_test,
         batch_size=args.batch_size,
+        collate_fn=collate_fn,
         num_workers=args.num_workers,
         pin_memory=True,
     )
@@ -214,10 +246,11 @@ def train(args):
                                   optimizer=optimizer, loss_scaler=loss_scaler)
     if best_so_far is None:
         best_so_far = float('inf')
-    if global_rank == 0 and args.output_dir is not None:
-        log_writer = SummaryWriter(log_dir=args.output_dir)
-    else:
-        log_writer = None
+    log_writer = SummaryWriter(log_dir=args.output_dir)
+    # if global_rank == 0 and args.output_dir is not None:
+    #     log_writer = SummaryWriter(log_dir=args.output_dir)
+    # else:
+    #     log_writer = None
 
     print(f"Start training for {args.epochs} epochs")
     start_time = time.time()
@@ -228,6 +261,14 @@ def train(args):
         if epoch > args.start_epoch:
             if args.save_freq and epoch % args.save_freq == 0 or epoch == args.epochs:
                 save_model(epoch - 1, 'last', best_so_far)
+
+        # Train
+        print("Starting training...")
+        train_stats = train_one_epoch(
+            model, train_criterion, data_loader_train,
+            optimizer, device, epoch, loss_scaler,
+            log_writer=log_writer,
+            args=args)
 
         # Test on multiple datasets
         new_best = False
@@ -241,8 +282,8 @@ def train(args):
             test_stats[test_name] = stats
 
             # Save best of all
-            if stats['loss_avg'] < best_so_far:
-                best_so_far = stats['loss_avg']
+            if stats['loss'] < best_so_far:
+                best_so_far = stats['loss']
                 new_best = True
 
         # Save more stuff
@@ -255,14 +296,6 @@ def train(args):
                 save_model(epoch - 1, 'best', best_so_far)
         if epoch >= args.epochs:
             break  # exit after writing last test to disk
-
-        # Train
-        print("Starting training...")
-        train_stats = train_one_epoch(
-            model, train_criterion, data_loader_train,
-            optimizer, device, epoch, loss_scaler,
-            log_writer=log_writer,
-            args=args)
 
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
@@ -298,37 +331,71 @@ def build_dataset(dataset, batch_size, num_workers, test=False):
     print(f"{split} dataset length: ", len(loader))
     return loader
 
+def reverse_ImgNorm(np_array):
+    np_array = np_array * 0.5 + 0.5
+    np_array *= 255.0
+    np_array = np_array.clip(0, 255).astype(np.uint8)
+    return np_array
+
+
+import io
+import matplotlib.pyplot as plt
 import PIL.Image
-import PIL.ImageDraw
+from torchvision.transforms import ToTensor
 def get_viz(view1, view2, pred1, pred2):
-    def overlay_points(image, points):
-        image = image.permute(1, 2, 0).cpu().numpy()
-        image = (image * 255).astype(np.uint8)
-        pil_image = PIL.Image.fromarray(image)
-        draw = PIL.ImageDraw.Draw(pil_image)
-        for (x, y) in points:
-            draw.point((x, y), fill=(255, 0, 0))  # Red points
-        return torch.tensor(np.array(pil_image))
-    batch, _, size, _ = view1["img"].size()
-    for b in range(batch):
-        view1_img = view1["img"][b]
-        view2_img = view2["img"][b]
-        view1_points = view1["plan_xys"][0]
-        view2_points = view2["image_xys"][0]
-        pred2_points = pred2["pts3d_in_other_view"][0]
-        x_coords = view2["image_xys"][0][:,0]
-        y_coords = view2["image_xys"][0][:,1]
-        pred2_points = pred2_points[y_coords, x_coords, :2]
-        assert pred2_points.size() == view1_points.size()
-        view1_overlay = overlay_points(view1_img, view1_points)
-        view2_overlay = overlay_points(view2_img, view2_points)
-        pred2_overlay = overlay_points(view1_img, pred2_points)
-        view1_overlay = torch.from_numpy(np.array(view1_overlay)).permute(2, 0, 1).float() / 255.0
-        view2_overlay = torch.from_numpy(np.array(view2_overlay)).permute(2, 0, 1).float() / 255.0
-        pred2_overlay = torch.from_numpy(np.array(pred2_overlay)).permute(2, 0, 1).float() / 255.0
-        combined_overlay = torch.cat((view1_overlay, pred2_overlay), dim=2)
-        combined_overlay = torch.cat((combined_overlay, view2_overlay), dim=2)
-    return combined_overlay
+    def gen_plot(view1, view2, pred1, pred2):
+        print("starting gen plot")
+        view1_img = view1["img"].permute(0, 2, 3, 1).cpu().numpy()
+        view2_img = view2["img"].permute(0, 2, 3, 1).cpu().numpy()
+
+        B = view1_img.shape[0]
+        fig, axes = plt.subplots(B, 3, figsize=(10, B*3))
+        titles = ["gt", "pred", "image"]
+        print("starting for loop")
+        for b in range(B):
+            view1_img_scaled = reverse_ImgNorm(view1_img[b])
+            axes[b, 0].imshow(view1_img_scaled)
+            view1_points = view1["plan_xys"][b].cpu().numpy()
+            axes[b, 0].scatter(view1_points[:,0], view1_points[:,1], s=5)
+            axes[b, 0].set_title(titles[0])
+            
+            axes[b, 1].imshow(view1_img_scaled)    
+            pred2_points = pred2["pts3d_in_other_view"][b].detach().cpu().numpy()
+            x_coords = view2["image_xys"][b][:,0].cpu().numpy()
+            y_coords = view2["image_xys"][b][:,1].cpu().numpy()
+            pred2_points = pred2_points[y_coords, x_coords, :2]
+            pred_min = pred2_points.min()
+            pred_max = pred2_points.max()
+            pred_norm_scaled = (pred2_points - pred_min) / (pred_max - pred_min) * 255.
+            axes[b, 1].scatter(pred_norm_scaled[:,0], pred_norm_scaled[:,1], s=5)
+            axes[b, 1].set_title(titles[1])  
+
+            view2_img_scaled = reverse_ImgNorm(view2_img[b])
+            axes[b, 2].imshow(view2_img_scaled)   
+            view2_points = view1["image_xys"][b].cpu().numpy()   
+            axes[b, 2].scatter(view2_points[:,0], view2_points[:,1], s=5) 
+            axes[b, 2].set_title(titles[2])   
+        plt.tight_layout()
+        return fig
+    viz = gen_plot(view1, view2, pred1, pred2)
+    # batch, _, _, _ = view1["img"].size()
+    # combined_overlays = []
+    # for b in range(batch):
+    #     view1_img = view1["img"][b]  #CHW
+    #     view2_img = view2["img"][b]  #CHW
+    #     view1_points = view1["plan_xys"][b]
+    #     view2_points = view2["image_xys"][b]
+    #     pred2_points = pred2["pts3d_in_other_view"][b]
+    #     x_coords = view2["image_xys"][b][:,0]
+    #     y_coords = view2["image_xys"][b][:,1]
+    #     pred2_points = pred2_points[y_coords, x_coords, :2]
+    #     assert pred2_points.size() == view1_points.size()
+    #     viz = gen_plot(view1_img, view2_img, view1_points, pred2_points)
+    return viz
+
+
+def is_main_process():
+    return torch.distributed.get_rank() == 0
 
 def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                     data_loader: Sized, optimizer: torch.optim.Optimizer,
@@ -342,7 +409,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
     metric_logger.add_meter('lr', misc.SmoothedValue(window_size=1, fmt='{value:.6f}'))
     header = 'Epoch: [{}]'.format(epoch)
     accum_iter = args.accum_iter
-
+    
     if log_writer is not None:
         print('log_dir: {}'.format(log_writer.log_dir))
 
@@ -353,7 +420,26 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
 
     optimizer.zero_grad()
 
+    
     for data_iter_step, batch in enumerate(metric_logger.log_every(data_loader, args.print_freq, header)):
+        # # batch: (view1=dict("img":BCHW), view2)
+        # view1, view2 = batch
+        # import matplotlib.pyplot as plt
+        # view1_imgs = view1["img"]
+        # view2_imgs = view2["img"]
+        # for b in range(view1_imgs.size()[0]):
+        #     view1_img = view1_imgs[b].permute(1, 2, 0).cpu().numpy()
+        #     plt.imshow(view1_img)
+        #     plt.savefig(join("/share/phoenix/nfs06/S9/kh775/code/dust3r/dust3r/utils/test/trainingpy_before_model", f"view1_img_{b}.png"))
+        #     plt.close()
+        #     view2_img = view2_imgs[b].permute(1, 2, 0).cpu().numpy()
+        #     plt.imshow(view2_img)
+        #     plt.savefig(join("/share/phoenix/nfs06/S9/kh775/code/dust3r/dust3r/utils/test/trainingpy_before_model", f"view2_img_{b}.png"))
+        #     plt.close()
+        # raise Exception
+        print(f"Start training for {data_iter_step} data_iter_step")
+        start_time = time.time()
+
         epoch_f = epoch + data_iter_step / len(data_loader)
 
         # we use a per iteration (instead of per epoch) lr scheduler
@@ -365,6 +451,10 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                                        use_amp=bool(args.amp))
         loss, loss_details = result["loss"]
         loss_value = float(loss)
+
+        total_time = time.time() - start_time
+        total_time_str = str(datetime.timedelta(seconds=int(total_time)))
+        print(f"Training time for {data_iter_step} data_iter_step: {total_time_str} seconds")
 
         if not math.isfinite(loss_value):
             print("Loss is {}, stopping training".format(loss_value), force=True)
@@ -391,16 +481,17 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
             """ We use epoch_1000x as the x-axis in tensorboard.
             This calibrates different curves when batch size changes.
             """
+            
             epoch_1000x = int(epoch_f * 1000)
             log_writer.add_scalar('train_loss', loss_value_reduce, epoch_1000x)
             log_writer.add_scalar('train_lr', lr, epoch_1000x)
             log_writer.add_scalar('train_iter', epoch_1000x, epoch_1000x)
             # for name, val in loss_details.items():
             #     log_writer.add_scalar('train_' + name, val, epoch_1000x)
-        if data_iter_step == 0 or (data_iter_step + 1) % 10 == 0:
-            viz = get_viz(result["view1"], result["view2"], result["pred1"], result["pred2"])
-            log_writer.add_image('train_sample', viz, epoch_1000x)
-            # print("Added image to log_writer")
+    if epoch == 0 or (epoch + 1) % 10 == 0:
+        viz = get_viz(result["view1"], result["view2"], result["pred1"], result["pred2"])
+        log_writer.add_figure('train_samples', viz, epoch)
+        # print("Added image to log_writer")
 
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
@@ -426,7 +517,7 @@ def test_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
     if hasattr(data_loader, 'sampler') and hasattr(data_loader.sampler, 'set_epoch'):
         data_loader.sampler.set_epoch(epoch)
 
-    for _, batch in enumerate(metric_logger.log_every(data_loader, args.print_freq, header)):
+    for batch_num, batch in enumerate(metric_logger.log_every(data_loader, args.print_freq, header)):
         result = loss_of_one_batch(batch, model, criterion, device,
                                        symmetrize_batch=True,
                                        use_amp=bool(args.amp))
@@ -434,13 +525,15 @@ def test_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
         metric_logger.update(loss=float(loss_value))
         # loss_value, loss_details = loss_tuple  # criterion returns two values
         # metric_logger.update(loss=float(loss_value), **loss_details)
+    if (epoch == 0 or (epoch + 1) % 10 == 0):
+        viz = get_viz(result["view1"], result["view2"], result["pred1"], result["pred2"])
+        log_writer.add_figure('test_samples', viz, epoch)
 
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
     print("Averaged stats:", metric_logger)
 
-    aggs = [('avg', 'global_avg')]
-    results = {f'{k}_{tag}': getattr(meter, attr) for k, meter in metric_logger.meters.items() for tag, attr in aggs}
+    results = {f'{k}': getattr(meter, 'global_avg') for k, meter in metric_logger.meters.items()}
 
     print(results)
     print(results.keys())
@@ -450,6 +543,6 @@ def test_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
     if log_writer is not None:
         for name, val in results.items():
             print(prefix, name, val, 1000*epoch)
-            log_writer.add_scalar(prefix + '_' + name, val, 1000 * epoch)
+            log_writer.add_scalar(prefix + '_' + name, val, 1000*epoch)
 
     return results
