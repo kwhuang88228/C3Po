@@ -158,15 +158,15 @@ class PointLoss(MultiLoss):
 
     
     def compute_loss(self, gt1, gt2, pred1, pred2, **kw):
-        # view1=view2: dict("img": Tensor(BCHW=(4,3,244,244)), "true_shape": Tensor(4,2), "instance": list(4), "plan_xy": Tensor(4,2), "image_xy": Tensor(4,2))
+        # view1=view2: dict("img": Tensor(BCHW=(4,3,224,224)), "true_shape": Tensor(4,2), "instance": list(4), "plan_xy": Tensor(4,2), "image_xy": Tensor(4,2))
         # pred1: dict("pts3d": Tensor(BHWC=(4,224,224,3)), "conf": Tensor(BHW=(4,224,224)))
         # pred2: dict("pts3d_in_other_view": Tensor(BHWC), "conf": Tensor(BHW))
         plan_xys_with_pad = gt1["plan_xys"]            #(B,max_xy_len,2)
-        img_xys_with_pad = gt1["image_xys"]   #(B,max_xy_len,2)
+        img_xys_with_pad = gt1["image_xys"]            #(B,max_xy_len,2)
         last_non_zero_indices = self.get_last_non_zero_indices(img_xys_with_pad)
         preds = torch.Tensor([]).cuda()
         gts = torch.Tensor([]).cuda()
-
+        size = gt1["img"].size()[2]
 
         for b, p in enumerate(pred2["pts3d_in_other_view"]):
             # pred: (HWC)
@@ -178,11 +178,11 @@ class PointLoss(MultiLoss):
             x_coords = x_coords.long()
             y_coords = y_coords.long()
             pred = p[y_coords, x_coords, :2]
-            pred_min = pred.min()
-            pred_max = pred.max()
-            pred_norm_scaled = (pred - pred_min) / (pred_max - pred_min) * 255.
+            # pred_min = pred.min()
+            # pred_max = pred.max()
+            # pred = (pred - pred_min) / (pred_max - pred_min) * size
 
-            preds = torch.cat((preds, pred_norm_scaled.flatten()))
+            preds = torch.cat((preds, pred.flatten()))
             gts = torch.cat((gts, plan_xys.flatten()))
 
         loss = self.pixel_loss(preds, gts).float()
