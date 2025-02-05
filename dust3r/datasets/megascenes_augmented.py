@@ -63,20 +63,22 @@ class MegaScenesAugmented(Dataset):
 
 
 if __name__ == "__main__":
-    image_pairs_path = "/share/phoenix/nfs06/S9/kh775/code/wsfm/scripts/data/keypoint_localization/data_train/image_pairs.csv"
+    image_pairs_path = "/share/phoenix/nfs06/S9/kh775/code/wsfm/scripts/data/keypoint_localization/data_test/one_plan_2/image_pairs.csv"
     data_dir = "/share/phoenix/nfs06/S9/kh775/dataset/megascenes_augmented_exhaustive"
-    coords_dir = "/share/phoenix/nfs06/S9/kh775/code/wsfm/scripts/data/keypoint_localization/data_train/coords"
+    coords_dir = "/share/phoenix/nfs06/S9/kh775/code/wsfm/scripts/data/keypoint_localization/data_test/one_plan_2/coords"
     dataset = MegaScenesAugmented(image_pairs_path, data_dir, coords_dir)
+    print(dataset[0][0].keys())  # dict_keys(['img', 'true_shape', 'idx', 'instance', 'plan_xys', 'image_xys'])
+    print(dataset[0][0]["img"].shape, dataset[0][0]["plan_xys"].shape)
 
-    dataloader = DataLoader(dataset)
-    max_s = 0
-    for view1, view2 in tqdm(dataloader):
-        # print(view1, view2)
-        # print(view1["img"].size(), view2["img"].size())
-        _, s, _ = view1["plan_xys"].size()
+    # dataloader = DataLoader(dataset)
+    # max_s = 0
+    # for view1, view2 in tqdm(dataloader):
+    #     # print(view1, view2)
+    #     # print(view1["img"].size(), view2["img"].size())
+    #     _, s, _ = view1["plan_xys"].size()
         
-        if s > max_s:
-            max_s = s
+    #     if s > max_s:
+    #         max_s = s
     
-    print(max_s)
+    # print(max_s)
         

@@ -38,8 +38,8 @@ def loss_of_one_batch(batch, model, criterion, device, symmetrize_batch=False, u
                 continue
             view[name] = view[name].to(device, non_blocking=True)
 
-    # if symmetrize_batch:
-    #     view1, view2 = make_batch_symmetric(batch)
+    if symmetrize_batch:
+        view1, view2 = make_batch_symmetric(batch)
 
     with torch.cuda.amp.autocast(enabled=bool(use_amp)):
         pred1, pred2 = model(view1, view2)

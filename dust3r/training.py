@@ -100,9 +100,13 @@ def collate_fn(batch):  # batch:[(view1, view2) * batch_size]
     view2_img_batched = [] 
     plan_xys_batched = []
     image_xys_batched = []
+    view1_instances = []
+    view2_instances = []
     for view1, view2 in batch:  #(['img', 'plan_xys', 'image_xys'])
         view1_img_batched.append(torch.Tensor(view1["img"]))
         view2_img_batched.append(torch.Tensor(view2["img"]))
+        view1_instances.append(view1["instance"])
+        view2_instances.append(view2["instance"])
 
         plan_xys_batched.append(torch.from_numpy(np.pad(view1["plan_xys"], ((0, max_xys_len - view1["plan_xys"].shape[0]), (0, 0)), mode="constant", constant_values=0)))
         image_xys_batched.append(torch.from_numpy(np.pad(view1["image_xys"], ((0, max_xys_len - view1["image_xys"].shape[0]), (0, 0)), mode="constant", constant_values=0)))
@@ -114,12 +118,14 @@ def collate_fn(batch):  # batch:[(view1, view2) * batch_size]
     final_view1 = dict(
         img=view1_img_batched, 
         plan_xys=plan_xys_batched,
-        image_xys=image_xys_batched
+        image_xys=image_xys_batched,
+        instance=view1_instances
     )
     final_view2 = dict(       
         img=view2_img_batched,
         plan_xys=plan_xys_batched,
-        image_xys=image_xys_batched
+        image_xys=image_xys_batched,
+        instance=view2_instances
     )
     return final_view1, final_view2
 
@@ -344,37 +350,53 @@ import PIL.Image
 from torchvision.transforms import ToTensor
 def get_viz(view1, view2, pred1, pred2):
     def gen_plot(view1, view2, pred1, pred2):
-        print("starting gen plot")
         view1_img = view1["img"].permute(0, 2, 3, 1).cpu().numpy()
         view2_img = view2["img"].permute(0, 2, 3, 1).cpu().numpy()
 
         B = view1_img.shape[0]
         fig, axes = plt.subplots(B, 3, figsize=(10, B*3))
         titles = ["gt", "pred", "image"]
-        print("starting for loop")
         for b in range(B):
-            view1_img_scaled = reverse_ImgNorm(view1_img[b])
-            axes[b, 0].imshow(view1_img_scaled)
-            view1_points = view1["plan_xys"][b].cpu().numpy()
-            axes[b, 0].scatter(view1_points[:,0], view1_points[:,1], s=5)
-            axes[b, 0].set_title(titles[0])
-            
-            axes[b, 1].imshow(view1_img_scaled)    
-            pred2_points = pred2["pts3d_in_other_view"][b].detach().cpu().numpy()
-            x_coords = view2["image_xys"][b][:,0].cpu().numpy()
-            y_coords = view2["image_xys"][b][:,1].cpu().numpy()
-            pred2_points = pred2_points[y_coords, x_coords, :2]
-            pred_min = pred2_points.min()
-            pred_max = pred2_points.max()
-            pred_norm_scaled = (pred2_points - pred_min) / (pred_max - pred_min) * 255.
-            axes[b, 1].scatter(pred_norm_scaled[:,0], pred_norm_scaled[:,1], s=5)
-            axes[b, 1].set_title(titles[1])  
+            if B == 1:
+                view1_img_scaled = reverse_ImgNorm(view1_img[b])
+                axes[0].imshow(view1_img_scaled)
+                view1_points = view1["plan_xys"][b].cpu().numpy()
+                axes[0].scatter(view1_points[:,0], view1_points[:,1], s=5)
+                axes[0].set_title(titles[0])
+                
+                axes[1].imshow(view1_img_scaled)    
+                pred2_points = pred2["pts3d_in_other_view"][b].detach().cpu().numpy()
+                x_coords = view2["image_xys"][b][:,0].cpu().numpy()
+                y_coords = view2["image_xys"][b][:,1].cpu().numpy()
+                pred2_points = pred2_points[y_coords, x_coords, :2]
+                axes[1].scatter(pred2_points[:,0], pred2_points[:,1], s=5)
+                axes[1].set_title(titles[1])  
 
-            view2_img_scaled = reverse_ImgNorm(view2_img[b])
-            axes[b, 2].imshow(view2_img_scaled)   
-            view2_points = view1["image_xys"][b].cpu().numpy()   
-            axes[b, 2].scatter(view2_points[:,0], view2_points[:,1], s=5) 
-            axes[b, 2].set_title(titles[2])   
+                view2_img_scaled = reverse_ImgNorm(view2_img[b])
+                axes[2].imshow(view2_img_scaled)   
+                view2_points = view1["image_xys"][b].cpu().numpy()   
+                axes[2].scatter(view2_points[:,0], view2_points[:,1], s=5) 
+                axes[2].set_title(titles[2])  
+            else:
+                view1_img_scaled = reverse_ImgNorm(view1_img[b])
+                axes[b, 0].imshow(view1_img_scaled)
+                view1_points = view1["plan_xys"][b].cpu().numpy()
+                axes[b, 0].scatter(view1_points[:,0], view1_points[:,1], s=5)
+                axes[b, 0].set_title(titles[0])
+                
+                axes[b, 1].imshow(view1_img_scaled)    
+                pred2_points = pred2["pts3d_in_other_view"][b].detach().cpu().numpy()
+                x_coords = view2["image_xys"][b][:,0].cpu().numpy()
+                y_coords = view2["image_xys"][b][:,1].cpu().numpy()
+                pred2_points = pred2_points[y_coords, x_coords, :2]
+                axes[b, 1].scatter(pred2_points[:,0], pred2_points[:,1], s=5)
+                axes[b, 1].set_title(titles[1])  
+
+                view2_img_scaled = reverse_ImgNorm(view2_img[b])
+                axes[b, 2].imshow(view2_img_scaled)   
+                view2_points = view1["image_xys"][b].cpu().numpy()   
+                axes[b, 2].scatter(view2_points[:,0], view2_points[:,1], s=5) 
+                axes[b, 2].set_title(titles[2])   
         plt.tight_layout()
         return fig
     viz = gen_plot(view1, view2, pred1, pred2)
@@ -447,7 +469,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
             misc.adjust_learning_rate(optimizer, epoch_f, args)
 
         result = loss_of_one_batch(batch, model, criterion, device,
-                                       symmetrize_batch=True,
+                                       symmetrize_batch=False,
                                        use_amp=bool(args.amp))
         loss, loss_details = result["loss"]
         loss_value = float(loss)
@@ -488,10 +510,12 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
             log_writer.add_scalar('train_iter', epoch_1000x, epoch_1000x)
             # for name, val in loss_details.items():
             #     log_writer.add_scalar('train_' + name, val, epoch_1000x)
-    if epoch == 0 or (epoch + 1) % 10 == 0:
-        viz = get_viz(result["view1"], result["view2"], result["pred1"], result["pred2"])
-        log_writer.add_figure('train_samples', viz, epoch)
-        # print("Added image to log_writer")
+
+        if data_iter_step == 0 and (epoch == 0 or (epoch + 1) % 10 == 0):
+            viz = get_viz(result["view1"], result["view2"], result["pred1"], result["pred2"])
+            log_writer.add_figure('train_samples', viz, epoch)
+            # print("Added image to log_writer")
+    
 
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
@@ -519,15 +543,15 @@ def test_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
 
     for batch_num, batch in enumerate(metric_logger.log_every(data_loader, args.print_freq, header)):
         result = loss_of_one_batch(batch, model, criterion, device,
-                                       symmetrize_batch=True,
+                                       symmetrize_batch=False,
                                        use_amp=bool(args.amp))
         loss_value, loss_details = result["loss"]  # criterion returns two values
         metric_logger.update(loss=float(loss_value))
         # loss_value, loss_details = loss_tuple  # criterion returns two values
         # metric_logger.update(loss=float(loss_value), **loss_details)
-    if (epoch == 0 or (epoch + 1) % 10 == 0):
-        viz = get_viz(result["view1"], result["view2"], result["pred1"], result["pred2"])
-        log_writer.add_figure('test_samples', viz, epoch)
+        if batch_num == 0 and (epoch == 0 or (epoch + 1) % 10 == 0):
+            viz = get_viz(result["view1"], result["view2"], result["pred1"], result["pred2"])
+            log_writer.add_figure('test_samples', viz, epoch)
 
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()

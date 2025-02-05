@@ -186,10 +186,8 @@ def load_megascenes_augmented_images(pair, size, plan_xys, image_xys, square_ok=
     # plt.savefig(os.path.join("/share/phoenix/nfs06/S9/kh775/code/dust3r/dust3r/utils/test/2", img_path.split("/")[-1]))
     # plt.close
 
-    plan_resized_padded, plan_xys_updated = resize_and_pad(scaled_plan, plan_xys, size)
-    img_resized_padded, image_xys_updated = resize_and_pad(img, image_xys, size)
-    # plan_xys_padded = np.pad(plan_xys_updated, ((0, max_xys_len - plan_xys_updated.shape[0]), (0, 0)), mode="constant", constant_values=0)
-    # image_xys_padded = np.pad(image_xys_updated, ((0, max_xys_len - image_xys_updated.shape[0]), (0, 0)), mode="constant", constant_values=0)
+    plan_updated, plan_xys_updated = resize_and_pad(scaled_plan, plan_xys, size)
+    img_updated, image_xys_updated = resize_and_pad(img, image_xys, size)
 
     # plt.imshow(plan_resized_padded)
     # plt.savefig(os.path.join("/share/phoenix/nfs06/S9/kh775/code/dust3r/dust3r/utils/test/2", "resized_"+plan_path.split("/")[-1]))
@@ -199,17 +197,17 @@ def load_megascenes_augmented_images(pair, size, plan_xys, image_xys, square_ok=
     # plt.close
 
 
-    plan_W2, plan_H2 = plan_resized_padded.size
-    img_W2, img_H2 = img_resized_padded.size
+    plan_W2, plan_H2 = plan_updated.size
+    img_W2, img_H2 = img_updated.size
 
     if verbose:
         print(f' - adding {plan_path} with resolution {plan_W1}x{plan_H1} --> {plan_W2}x{plan_H2}')
         print(f' - adding {img_path} with resolution {img_W1}x{img_H1} --> {img_W2}x{img_H2}')
-    image_views.append(dict(img=ImgNorm(plan_resized_padded), true_shape=np.int32(
-        plan_resized_padded.size[::-1]), idx=len(image_views), instance=str(len(image_views)), 
+    image_views.append(dict(img=ImgNorm(plan_updated), true_shape=np.int32(
+        plan_updated.size[::-1]), idx=len(image_views), instance=str(len(image_views)), 
         plan_xys=np.int32(plan_xys_updated), image_xys=np.int32(image_xys_updated)))
-    image_views.append(dict(img=ImgNorm(img_resized_padded), true_shape=np.int32(
-        img_resized_padded.size[::-1]), idx=len(image_views), instance=str(len(image_views)), 
+    image_views.append(dict(img=ImgNorm(img_updated), true_shape=np.int32(
+        img_updated.size[::-1]), idx=len(image_views), instance=str(len(image_views)), 
         plan_xys=np.int32(plan_xys_updated), image_xys=np.int32(image_xys_updated)))
 
     if verbose:

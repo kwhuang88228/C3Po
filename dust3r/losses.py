@@ -166,7 +166,7 @@ class PointLoss(MultiLoss):
         last_non_zero_indices = self.get_last_non_zero_indices(img_xys_with_pad)
         preds = torch.Tensor([]).cuda()
         gts = torch.Tensor([]).cuda()
-        size = gt1["img"].size()[2]
+        # size = gt1["img"].size()[2]
 
         for b, p in enumerate(pred2["pts3d_in_other_view"]):
             # pred: (HWC)
@@ -184,6 +184,8 @@ class PointLoss(MultiLoss):
 
             preds = torch.cat((preds, pred.flatten()))
             gts = torch.cat((gts, plan_xys.flatten()))
+
+            assert preds.size() == gts.size()
 
         loss = self.pixel_loss(preds, gts).float()
         return loss

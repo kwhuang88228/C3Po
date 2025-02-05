@@ -158,13 +158,13 @@ class AsymmetricCroCo3DStereo (
         shape2 = view2.get('true_shape', torch.tensor(img2.shape[-2:])[None].repeat(B, 1))
         # warning! maybe the images have different portrait/landscape orientations
 
-        if is_symmetrized(view1, view2):
-            # computing half of forward pass!'
-            feat1, feat2, pos1, pos2 = self._encode_image_pairs(img1[::2], img2[::2], shape1[::2], shape2[::2])
-            feat1, feat2 = interleave(feat1, feat2)
-            pos1, pos2 = interleave(pos1, pos2)
-        else:
-            feat1, feat2, pos1, pos2 = self._encode_image_pairs(img1, img2, shape1, shape2)
+        # if is_symmetrized(view1, view2):
+        #     # computing half of forward pass!'
+        #     feat1, feat2, pos1, pos2 = self._encode_image_pairs(img1[::2], img2[::2], shape1[::2], shape2[::2])
+        #     feat1, feat2 = interleave(feat1, feat2)
+        #     pos1, pos2 = interleave(pos1, pos2)
+        # else:
+        feat1, feat2, pos1, pos2 = self._encode_image_pairs(img1, img2, shape1, shape2)
 
         return (shape1, shape2), (feat1, feat2), (pos1, pos2)
 
