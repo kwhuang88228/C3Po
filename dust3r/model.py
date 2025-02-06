@@ -69,6 +69,8 @@ class AsymmetricCroCo3DStereo (
         super().__init__(**croco_kwargs)
 
         # dust3r specific initialization
+        self.enc_blocks2 = deepcopy(self.enc_blocks)
+        self.enc_norm2 = deepcopy(self.enc_norm)
         self.dec_blocks2 = deepcopy(self.dec_blocks)
         self.set_downstream_head(output_mode, head_type, landscape_only, depth_mode, conf_mode, **croco_kwargs)
         self.set_freeze(freeze)
@@ -88,12 +90,16 @@ class AsymmetricCroCo3DStereo (
         self.patch_embed = get_patch_embed(self.patch_embed_cls, img_size, patch_size, enc_embed_dim)
 
     def load_state_dict(self, ckpt, **kw):
-        # duplicate all weights for the second decoder if not present
+        # duplicate all weights for the second decoder and second encoder if not present
         new_ckpt = dict(ckpt)
         if not any(k.startswith('dec_blocks2') for k in ckpt):
             for key, value in ckpt.items():
                 if key.startswith('dec_blocks'):
                     new_ckpt[key.replace('dec_blocks', 'dec_blocks2')] = value
+        if not any(k.startswith('enc_blocks2') for k in ckpt):
+            for key, value in ckpt.items():
+                if key.startswith('enc_blocks'):
+                    new_ckpt[key.replace('enc_blocks', 'enc_blocks2')] = value
         return super().load_state_dict(new_ckpt, **kw)
 
     def set_freeze(self, freeze):  # this is for use by downstream models
@@ -101,7 +107,7 @@ class AsymmetricCroCo3DStereo (
         to_be_frozen = {
             'none': [],
             'mask': [self.mask_token],
-            'encoder': [self.mask_token, self.patch_embed, self.enc_blocks],
+            'encoder': [self.mask_token, self.patch_embed, self.enc_blocks, self.enc_blocks2],
         }
         freeze_all_params(to_be_frozen[freeze])
 
@@ -124,7 +130,21 @@ class AsymmetricCroCo3DStereo (
         self.head1 = transpose_to_landscape(self.downstream_head1, activate=landscape_only)
         self.head2 = transpose_to_landscape(self.downstream_head2, activate=landscape_only)
 
-    def _encode_image(self, image, true_shape):
+    # def _encode_image(self, image, true_shape):
+    #     # embed the image into patches  (x has size B x Npatches x C)
+    #     x, pos = self.patch_embed(image, true_shape=true_shape)
+
+    #     # add positional embedding without cls token
+    #     assert self.enc_pos_embed is None
+
+    #     # now apply the transformer encoder and normalization
+    #     for blk in self.enc_blocks:
+    #         x = blk(x, pos)
+
+    #     x = self.enc_norm(x)
+    #     return x, pos, None
+
+    def _encode_image(self, enc_blocks, enc_norm, image, true_shape):
         # embed the image into patches  (x has size B x Npatches x C)
         x, pos = self.patch_embed(image, true_shape=true_shape)
 
@@ -132,10 +152,10 @@ class AsymmetricCroCo3DStereo (
         assert self.enc_pos_embed is None
 
         # now apply the transformer encoder and normalization
-        for blk in self.enc_blocks:
+        for blk in enc_blocks:
             x = blk(x, pos)
 
-        x = self.enc_norm(x)
+        x = enc_norm(x)
         return x, pos, None
 
     def _encode_image_pairs(self, img1, img2, true_shape1, true_shape2):
@@ -149,7 +169,7 @@ class AsymmetricCroCo3DStereo (
             out2, pos2, _ = self._encode_image(img2, true_shape2)
         return out, out2, pos, pos2
 
-    def _encode_symmetrized(self, view1, view2):
+    def _encode(self, view1, view2):
         img1 = view1['img']
         img2 = view2['img']
         B = img1.shape[0]
@@ -158,13 +178,9 @@ class AsymmetricCroCo3DStereo (
         shape2 = view2.get('true_shape', torch.tensor(img2.shape[-2:])[None].repeat(B, 1))
         # warning! maybe the images have different portrait/landscape orientations
 
-        # if is_symmetrized(view1, view2):
-        #     # computing half of forward pass!'
-        #     feat1, feat2, pos1, pos2 = self._encode_image_pairs(img1[::2], img2[::2], shape1[::2], shape2[::2])
-        #     feat1, feat2 = interleave(feat1, feat2)
-        #     pos1, pos2 = interleave(pos1, pos2)
-        # else:
-        feat1, feat2, pos1, pos2 = self._encode_image_pairs(img1, img2, shape1, shape2)
+        feat1, pos1, _ = self._encode_image(self.enc_blocks, self.enc_norm, img1, shape1)
+        feat2, pos2, _ = self._encode_image(self.enc_blocks2, self.enc_norm2, img2, shape2)
+        # feat1, feat2, pos1, pos2 = self._encode_image_pairs(img1, img2, shape1, shape2)
 
         return (shape1, shape2), (feat1, feat2), (pos1, pos2)
 
@@ -197,7 +213,7 @@ class AsymmetricCroCo3DStereo (
 
     def forward(self, view1, view2):
         # encode the two images --> B,S,D
-        (shape1, shape2), (feat1, feat2), (pos1, pos2) = self._encode_symmetrized(view1, view2)
+        (shape1, shape2), (feat1, feat2), (pos1, pos2) = self._encode(view1, view2)
 
         # combine all ref images into object-centric representation
         dec1, dec2 = self._decoder(feat1, pos1, feat2, pos2)

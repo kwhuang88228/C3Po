@@ -246,6 +246,13 @@ if __name__ == "__main__":
     # image_xys = xys[1]
     # image_views = load_megascenes_augmented_images(folder_or_list, size, plan_xys, image_xys, square_ok=False, verbose=True)
 
+    coordNorm = CoordNorm()
+    size = 224
+    array = np.array([[0, 0], [223, 223], [112, 112], [78.53040103, 113.89391979]])
+    norm = coordNorm(array, size)
+    print(norm)
+    print((norm + 1) * (size - 1) / 2)
+
     pass
 
 

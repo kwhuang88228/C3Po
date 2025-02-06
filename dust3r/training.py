@@ -51,6 +51,7 @@ def get_args_parser():
     parser.add_argument('--train_dataset', required=True, type=str, help="training set")
     parser.add_argument('--test_dataset', default='[None]', type=str, help="testing set")
 
+
     # training
     parser.add_argument('--seed', default=0, type=int, help="Random seed")
     parser.add_argument('--batch_size', default=64, type=int,
@@ -92,9 +93,9 @@ def get_args_parser():
 
 def collate_fn(batch):  # batch:[(view1, view2) * batch_size]
     # print(view1["img"].size(), view1["plan_xys"].size())  # Should be torch.Size([8, 3, 224, 224]) torch.Size([8, 733, 2])   
-    print("in collate_fn...")
+    # print("in collate_fn...")
     max_xys_len = max(item[0]["plan_xys"].shape[0] for item in batch)
-    print(f"max_xys_len: {max_xys_len}")
+    # print(f"max_xys_len: {max_xys_len}")
     
     view1_img_batched = []
     view2_img_batched = [] 
@@ -177,9 +178,9 @@ def train(args):
     )
     # for batch in data_loader_train:
     #     view1, view2 = batch
-    #     print(view1["img"])
-    #     print(view2["img"])
-    #     print(view1["img"].size(), view1["plan_xys"].size())  # Should be torch.Size([8, 3, 224, 224]) torch.Size([8, 733, 2])   
+    #     print(view1["plan_xys"])
+    #     # print(view2["img"])
+    #     # print(view1["img"].size(), view1["plan_xys"].size())  # Should be torch.Size([8, 3, 224, 224]) torch.Size([8, 733, 2])   
     #     break
     # raise Exception
     print("Training data loaded")
@@ -343,6 +344,8 @@ def reverse_ImgNorm(np_array):
     np_array = np_array.clip(0, 255).astype(np.uint8)
     return np_array
 
+def reverse_CoordNorm(np_array, size):
+    return (np_array + 1) * (size - 1) / 2
 
 import io
 import matplotlib.pyplot as plt
@@ -353,7 +356,7 @@ def get_viz(view1, view2, pred1, pred2):
         view1_img = view1["img"].permute(0, 2, 3, 1).cpu().numpy()
         view2_img = view2["img"].permute(0, 2, 3, 1).cpu().numpy()
 
-        B = view1_img.shape[0]
+        B, image_size, _,  _ = view1_img.shape
         fig, axes = plt.subplots(B, 3, figsize=(10, B*3))
         titles = ["gt", "pred", "image"]
         for b in range(B):
@@ -369,6 +372,7 @@ def get_viz(view1, view2, pred1, pred2):
                 x_coords = view2["image_xys"][b][:,0].cpu().numpy()
                 y_coords = view2["image_xys"][b][:,1].cpu().numpy()
                 pred2_points = pred2_points[y_coords, x_coords, :2]
+                pred2_points = reverse_CoordNorm(pred2_points, image_size)
                 axes[1].scatter(pred2_points[:,0], pred2_points[:,1], s=5)
                 axes[1].set_title(titles[1])  
 
@@ -389,6 +393,7 @@ def get_viz(view1, view2, pred1, pred2):
                 x_coords = view2["image_xys"][b][:,0].cpu().numpy()
                 y_coords = view2["image_xys"][b][:,1].cpu().numpy()
                 pred2_points = pred2_points[y_coords, x_coords, :2]
+                pred2_points = reverse_CoordNorm(pred2_points, image_size)
                 axes[b, 1].scatter(pred2_points[:,0], pred2_points[:,1], s=5)
                 axes[b, 1].set_title(titles[1])  
 
@@ -432,8 +437,8 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
     header = 'Epoch: [{}]'.format(epoch)
     accum_iter = args.accum_iter
     
-    if log_writer is not None:
-        print('log_dir: {}'.format(log_writer.log_dir))
+    # if log_writer is not None:
+    #     print('log_dir: {}'.format(log_writer.log_dir))
 
     if hasattr(data_loader, 'dataset') and hasattr(data_loader.dataset, 'set_epoch'):
         data_loader.dataset.set_epoch(epoch)
@@ -559,8 +564,8 @@ def test_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
 
     results = {f'{k}': getattr(meter, 'global_avg') for k, meter in metric_logger.meters.items()}
 
-    print(results)
-    print(results.keys())
+    # print(results)
+    # print(results.keys())
     #  'loss_avg': 9177.31206644813, 'loss_med': 7096.86865234375, 'PointfLoss(MSELoss())_avg': 9177.31206644813, 'PointfLoss(MSELoss())_med': 7096.86865234375}
     # [11:10:57.758835] dict_keys(['loss_avg', 'loss_med', 'PointfLoss(MSELoss())_avg', 'PointfLoss(MSELoss())_med'])
 

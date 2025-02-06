@@ -156,6 +156,8 @@ class PointLoss(MultiLoss):
                     break
         return last_non_zero_indices
 
+    def coordNorm(self, array, image_dim):
+        return 2 * (array / (image_dim - 1)) - 1
     
     def compute_loss(self, gt1, gt2, pred1, pred2, **kw):
         # view1=view2: dict("img": Tensor(BCHW=(4,3,224,224)), "true_shape": Tensor(4,2), "instance": list(4), "plan_xy": Tensor(4,2), "image_xy": Tensor(4,2))
@@ -166,12 +168,13 @@ class PointLoss(MultiLoss):
         last_non_zero_indices = self.get_last_non_zero_indices(img_xys_with_pad)
         preds = torch.Tensor([]).cuda()
         gts = torch.Tensor([]).cuda()
-        # size = gt1["img"].size()[2]
+        image_dim = gt1["img"].size()[2]
 
         for b, p in enumerate(pred2["pts3d_in_other_view"]):
             # pred: (HWC)
             img_xys = img_xys_with_pad[b][:last_non_zero_indices[b],:]
             plan_xys = plan_xys_with_pad[b][:last_non_zero_indices[b],:]
+            plan_xys_norm = self.coordNorm(plan_xys, image_dim)
 
             x_coords = img_xys[:, 0]
             y_coords = img_xys[:, 1] 
@@ -183,7 +186,7 @@ class PointLoss(MultiLoss):
             # pred = (pred - pred_min) / (pred_max - pred_min) * size
 
             preds = torch.cat((preds, pred.flatten()))
-            gts = torch.cat((gts, plan_xys.flatten()))
+            gts = torch.cat((gts, plan_xys_norm.flatten()))
 
             assert preds.size() == gts.size()
 
