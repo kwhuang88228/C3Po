@@ -12,6 +12,7 @@
 import argparse
 import datetime
 import json
+import random
 import numpy as np
 import os
 from os.path import join
@@ -31,11 +32,23 @@ from dust3r.model import AsymmetricCroCo3DStereo, inf  # noqa: F401, needed when
 from dust3r.datasets import get_data_loader  # noqa
 from dust3r.losses import *  # noqa: F401, needed when loading the model
 from dust3r.inference import loss_of_one_batch  # noqa
+from dust3r.utils.viz import get_viz
 
 import dust3r.utils.path_to_croco  # noqa: F401
 import croco.utils.misc as misc  # noqa
 from croco.utils.misc import NativeScalerWithGradNormCount as NativeScaler  # noqa
 
+
+def set_seed(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)  # If using multi-GPU
+    torch.backends.cudnn.deterministic = True  # Ensure deterministic behavior
+    torch.backends.cudnn.benchmark = False  # Disable optimizations that can cause nondeterminism
+
+set_seed(12)
 
 def get_args_parser():
     parser = argparse.ArgumentParser('DUST3R training', add_help=False)
@@ -338,88 +351,6 @@ def build_dataset(dataset, batch_size, num_workers, test=False):
     print(f"{split} dataset length: ", len(loader))
     return loader
 
-def reverse_ImgNorm(np_array):
-    np_array = np_array * 0.5 + 0.5
-    np_array *= 255.0
-    np_array = np_array.clip(0, 255).astype(np.uint8)
-    return np_array
-
-def reverse_CoordNorm(np_array, size):
-    return (np_array + 1) * (size - 1) / 2
-
-import io
-import matplotlib.pyplot as plt
-import PIL.Image
-from torchvision.transforms import ToTensor
-def get_viz(view1, view2, pred1, pred2):
-    def gen_plot(view1, view2, pred1, pred2):
-        view1_img = view1["img"].permute(0, 2, 3, 1).cpu().numpy()
-        view2_img = view2["img"].permute(0, 2, 3, 1).cpu().numpy()
-
-        B, image_size, _,  _ = view1_img.shape
-        fig, axes = plt.subplots(B, 3, figsize=(10, B*3))
-        titles = ["gt", "pred", "image"]
-        for b in range(B):
-            if B == 1:
-                view1_img_scaled = reverse_ImgNorm(view1_img[b])
-                axes[0].imshow(view1_img_scaled)
-                view1_points = view1["plan_xys"][b].cpu().numpy()
-                axes[0].scatter(view1_points[:,0], view1_points[:,1], s=5)
-                axes[0].set_title(titles[0])
-                
-                axes[1].imshow(view1_img_scaled)    
-                pred2_points = pred2["pts3d_in_other_view"][b].detach().cpu().numpy()
-                x_coords = view2["image_xys"][b][:,0].cpu().numpy()
-                y_coords = view2["image_xys"][b][:,1].cpu().numpy()
-                pred2_points = pred2_points[y_coords, x_coords, :2]
-                pred2_points = reverse_CoordNorm(pred2_points, image_size)
-                axes[1].scatter(pred2_points[:,0], pred2_points[:,1], s=5)
-                axes[1].set_title(titles[1])  
-
-                view2_img_scaled = reverse_ImgNorm(view2_img[b])
-                axes[2].imshow(view2_img_scaled)   
-                view2_points = view1["image_xys"][b].cpu().numpy()   
-                axes[2].scatter(view2_points[:,0], view2_points[:,1], s=5) 
-                axes[2].set_title(titles[2])  
-            else:
-                view1_img_scaled = reverse_ImgNorm(view1_img[b])
-                axes[b, 0].imshow(view1_img_scaled)
-                view1_points = view1["plan_xys"][b].cpu().numpy()
-                axes[b, 0].scatter(view1_points[:,0], view1_points[:,1], s=5)
-                axes[b, 0].set_title(titles[0])
-                
-                axes[b, 1].imshow(view1_img_scaled)    
-                pred2_points = pred2["pts3d_in_other_view"][b].detach().cpu().numpy()
-                x_coords = view2["image_xys"][b][:,0].cpu().numpy()
-                y_coords = view2["image_xys"][b][:,1].cpu().numpy()
-                pred2_points = pred2_points[y_coords, x_coords, :2]
-                pred2_points = reverse_CoordNorm(pred2_points, image_size)
-                axes[b, 1].scatter(pred2_points[:,0], pred2_points[:,1], s=5)
-                axes[b, 1].set_title(titles[1])  
-
-                view2_img_scaled = reverse_ImgNorm(view2_img[b])
-                axes[b, 2].imshow(view2_img_scaled)   
-                view2_points = view1["image_xys"][b].cpu().numpy()   
-                axes[b, 2].scatter(view2_points[:,0], view2_points[:,1], s=5) 
-                axes[b, 2].set_title(titles[2])   
-        plt.tight_layout()
-        return fig
-    viz = gen_plot(view1, view2, pred1, pred2)
-    # batch, _, _, _ = view1["img"].size()
-    # combined_overlays = []
-    # for b in range(batch):
-    #     view1_img = view1["img"][b]  #CHW
-    #     view2_img = view2["img"][b]  #CHW
-    #     view1_points = view1["plan_xys"][b]
-    #     view2_points = view2["image_xys"][b]
-    #     pred2_points = pred2["pts3d_in_other_view"][b]
-    #     x_coords = view2["image_xys"][b][:,0]
-    #     y_coords = view2["image_xys"][b][:,1]
-    #     pred2_points = pred2_points[y_coords, x_coords, :2]
-    #     assert pred2_points.size() == view1_points.size()
-    #     viz = gen_plot(view1_img, view2_img, view1_points, pred2_points)
-    return viz
-
 
 def is_main_process():
     return torch.distributed.get_rank() == 0
@@ -563,11 +494,6 @@ def test_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
     print("Averaged stats:", metric_logger)
 
     results = {f'{k}': getattr(meter, 'global_avg') for k, meter in metric_logger.meters.items()}
-
-    # print(results)
-    # print(results.keys())
-    #  'loss_avg': 9177.31206644813, 'loss_med': 7096.86865234375, 'PointfLoss(MSELoss())_avg': 9177.31206644813, 'PointfLoss(MSELoss())_med': 7096.86865234375}
-    # [11:10:57.758835] dict_keys(['loss_avg', 'loss_med', 'PointfLoss(MSELoss())_avg', 'PointfLoss(MSELoss())_med'])
 
     if log_writer is not None:
         for name, val in results.items():
