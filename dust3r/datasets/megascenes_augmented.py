@@ -19,17 +19,24 @@ class MegaScenesAugmented(BaseStereoViewDataset):
     def _load_data(self):
         print("Loading image pairs...")
         with open(osp.join(self.data_dir, f"data_{self.split}", "image_pairs.csv"), "r") as f:
-            self.image_pairs = []
-            bad_pairs_path = os.path.join(self.data_dir, "bad_pairs.txt")
-            bad_pairs = [pair.replace("\n", "") for pair in list(open(bad_pairs_path).readlines())]
-            bad_pairs = set([(pair.split(" /")[0], "/"+pair.split(" /")[1]) for pair in bad_pairs])
-            
+            self.image_pairs = []            
             reader = csv.reader(f)
+            bad_pairs = self._get_bad_pairs()
             for row in reader:
                 _, _, _, plan_name, image_name = row
                 if (plan_name, image_name) not in bad_pairs:
                     self.image_pairs.append(row)
         print(f"{len(self.image_pairs)} image pairs loaded")
+
+    def _get_bad_pairs(self):
+        bad_pairs = set()
+        for pair in list(open(os.path.join(self.data_dir, "bad_pairs.txt")).readlines()):
+            plan_path, image_path = pair.replace("\n", "").split(" /")
+            plan_name = plan_path.split("/")[-1]
+            image_name = ("/"+image_path).replace(self.image_dir, "")
+            image_name = "/".join(image_name.split("/")[2:])
+            bad_pairs.add((plan_name, image_name))    
+        return bad_pairs
 
     def __len__(self):
         return (len(self.image_pairs))
