@@ -1,64 +1,54 @@
 import csv
 import os
-import sys
+import os.path as osp
 
 import numpy as np
-import PIL.Image
-import torch
-from tqdm import tqdm
-
-sys.path.append(os.path.dirname("/share/phoenix/nfs06/S9/kh775/code/dust3r/dust3r"))
-from dust3r.image_pairs import make_pairs
+from dust3r.datasets.base.base_stereo_view_dataset import BaseStereoViewDataset
+# sys.path.append(os.path.dirname("/share/phoenix/nfs06/S9/kh775/code/dust3r/dust3r"))
 from dust3r.utils.image import load_megascenes_augmented_images
-from torch.utils.data import DataLoader, Dataset
 
 
-class MegaScenesAugmented(Dataset):
-    def __init__(self, image_pairs_path, data_dir, npx_dir):
-        self.image_pairs = []
-        self.load_image_pairs(image_pairs_path)
+class MegaScenesAugmented(BaseStereoViewDataset):
+    def __init__(self, *args, data_dir, image_dir, **kwargs):
         self.data_dir = data_dir
-        self.npx_dir = npx_dir
-        # self.max_xys_len = 0
-        # self.get_max_xys_len()
+        self.image_dir = image_dir
+        super().__init__(*args, **kwargs)
+        # assert self.split == 'train'
+        self.loaded_data = self._load_data()
         
-    def load_image_pairs(self, image_pairs_path):
+    def _load_data(self):
         print("Loading image pairs...")
-        with open(image_pairs_path, "r") as f:
+        with open(osp.join(self.data_dir, f"data_{self.split}", "image_pairs.csv"), "r") as f:
+            self.image_pairs = []
+            bad_pairs_path = os.path.join(self.data_dir, "bad_pairs.txt")
+            bad_pairs = [pair.replace("\n", "") for pair in list(open(bad_pairs_path).readlines())]
+            bad_pairs = set([(pair.split(" /")[0], "/"+pair.split(" /")[1]) for pair in bad_pairs])
+            
             reader = csv.reader(f)
-            self.image_pairs = [row for row in reader]
+            for row in reader:
+                _, _, _, plan_name, image_name = row
+                if (plan_name, image_name) not in bad_pairs:
+                    self.image_pairs.append(row)
         print(f"{len(self.image_pairs)} image pairs loaded")
-
-    # def get_max_xys_len(self):
-    #     print("Calculating max_xys_len...")
-    #     self.max_xys_len = 0
-    #     for file_name in os.listdir(self.npx_dir):
-    #         npx_path = os.path.join(self.npx_dir, file_name)
-    #         xys = np.load(npx_path)
-    #         xys_len = xys[0].shape[0]
-    #         if xys_len > self.max_xys_len:
-    #             self.max_xys_len = xys_len
-    #     print(f"max_xys_len: {self.max_xys_len}")
 
     def __len__(self):
         return (len(self.image_pairs))
 
     def __getitem__(self, idx):
+        idx = idx[0] if self.split == "train" else idx
         i, landmark, comp, plan_name, image_name = self.image_pairs[idx]
-        plan_path = os.path.join(self.data_dir, landmark, "plans", plan_name)
-        image_path = os.path.join(self.data_dir,  landmark, "images", image_name)
-        xys_path = os.path.join(self.npx_dir, f"{int(i):08}.npy")
+        plan_path = os.path.join(self.image_dir, landmark, "plans", plan_name)
+        image_path = os.path.join(self.image_dir,  landmark, "images", image_name)
+        xys_path = os.path.join(self.data_dir, f"data_{self.split}", "coords", f"{int(i):06}.npy")
         xys = np.load(xys_path)
         images = load_megascenes_augmented_images(
             [plan_path, image_path], 
             size=224, 
             plan_xys=xys[0],
             image_xys=xys[1], 
-            # max_xys_len=self.max_xys_len,
             verbose=False
         )
         view1, view2 = images
-        # pairs = make_pairs(images, scene_graph='complete', prefilter=None, symmetrize=True)
         return view1, view2
 
 

@@ -104,46 +104,6 @@ def get_args_parser():
     return parser
 
 
-def collate_fn(batch):  # batch:[(view1, view2) * batch_size]
-    # print(view1["img"].size(), view1["plan_xys"].size())  # Should be torch.Size([8, 3, 224, 224]) torch.Size([8, 733, 2])   
-    # print("in collate_fn...")
-    max_xys_len = max(item[0]["plan_xys"].shape[0] for item in batch)
-    # print(f"max_xys_len: {max_xys_len}")
-    
-    view1_img_batched = []
-    view2_img_batched = [] 
-    plan_xys_batched = []
-    image_xys_batched = []
-    view1_instances = []
-    view2_instances = []
-    for view1, view2 in batch:  #(['img', 'plan_xys', 'image_xys'])
-        view1_img_batched.append(torch.Tensor(view1["img"]))
-        view2_img_batched.append(torch.Tensor(view2["img"]))
-        view1_instances.append(view1["instance"])
-        view2_instances.append(view2["instance"])
-
-        plan_xys_batched.append(torch.from_numpy(np.pad(view1["plan_xys"], ((0, max_xys_len - view1["plan_xys"].shape[0]), (0, 0)), mode="constant", constant_values=0)))
-        image_xys_batched.append(torch.from_numpy(np.pad(view1["image_xys"], ((0, max_xys_len - view1["image_xys"].shape[0]), (0, 0)), mode="constant", constant_values=0)))
-
-    view1_img_batched = torch.stack(view1_img_batched)
-    view2_img_batched = torch.stack(view2_img_batched)
-    plan_xys_batched = torch.stack(plan_xys_batched)
-    image_xys_batched = torch.stack(image_xys_batched)
-    final_view1 = dict(
-        img=view1_img_batched, 
-        plan_xys=plan_xys_batched,
-        image_xys=image_xys_batched,
-        instance=view1_instances
-    )
-    final_view2 = dict(       
-        img=view2_img_batched,
-        plan_xys=plan_xys_batched,
-        image_xys=image_xys_batched,
-        instance=view2_instances
-    )
-    return final_view1, final_view2
-
-
 def train(args):
     misc.init_distributed_mode(args)
     global_rank = misc.get_rank()
@@ -170,43 +130,11 @@ def train(args):
 
     cudnn.benchmark = not args.disable_cudnn_benchmark
 
-    # # training dataset and loader
-    # print('Building train dataset {:s}'.format(args.train_dataset))
-    # #  dataset and loader
-    # data_loader_train = build_dataset(args.train_dataset, args.batch_size, args.num_workers, test=False)
-    # print('Building test dataset {:s}'.format(args.train_dataset))
-    # data_loader_test = {dataset.split('(')[0]: build_dataset(dataset, args.batch_size, args.num_workers, test=True)
-    #                     for dataset in args.test_dataset.split('+')}
-    data_dir = "/share/phoenix/nfs06/S9/kh775/dataset/megascenes_augmented_exhaustive"
-    from torch.utils.data import DataLoader
-    from dust3r.datasets.megascenes_augmented import MegaScenesAugmented
-    print("Loading training data...")
-    data_train = MegaScenesAugmented(join(args.train_dataset, "image_pairs.csv"), data_dir, join(args.train_dataset, "coords"))  # B=2, len(dataloader_train)=8204
-    data_loader_train = DataLoader(
-        data_train,
-        batch_size=args.batch_size,
-        collate_fn=collate_fn,
-        num_workers=args.num_workers,
-        pin_memory=True,
-    )
-    # for batch in data_loader_train:
-    #     view1, view2 = batch
-    #     print(view1["plan_xys"])
-    #     # print(view2["img"])
-    #     # print(view1["img"].size(), view1["plan_xys"].size())  # Should be torch.Size([8, 3, 224, 224]) torch.Size([8, 733, 2])   
-    #     break
-    # raise Exception
-    print("Training data loaded")
-    print("Loading testing data...")
-    data_test = MegaScenesAugmented(join(args.test_dataset, "image_pairs.csv"), data_dir, join(args.test_dataset, "coords"))
-    data_loader_test = DataLoader(
-        data_test,
-        batch_size=args.batch_size,
-        collate_fn=collate_fn,
-        num_workers=args.num_workers,
-        pin_memory=True,
-    )
-    print("Test data loaded")
+    # training dataset and loader
+    print('Building train dataset {:s}'.format(args.train_dataset))
+    data_loader_train = build_dataset(args.train_dataset, args.batch_size, args.num_workers, test=False)
+    print('Building test dataset {:s}'.format(args.train_dataset))
+    data_loader_test = build_dataset(args.test_dataset, args.batch_size, args.num_workers, test=True)
 
     # model
     # print('Loading model: {:s}'.format(args.model))
@@ -266,11 +194,11 @@ def train(args):
                                   optimizer=optimizer, loss_scaler=loss_scaler)
     if best_so_far is None:
         best_so_far = float('inf')
-    log_writer = SummaryWriter(log_dir=args.output_dir)
-    # if global_rank == 0 and args.output_dir is not None:
-    #     log_writer = SummaryWriter(log_dir=args.output_dir)
-    # else:
-    #     log_writer = None
+
+    if global_rank == 0 and args.output_dir is not None:
+        log_writer = SummaryWriter(log_dir=args.output_dir)
+    else:
+        log_writer = None
 
     print(f"Start training for {args.epochs} epochs")
     start_time = time.time()
@@ -348,7 +276,7 @@ def build_dataset(dataset, batch_size, num_workers, test=False):
                              shuffle=not (test),
                              drop_last=not (test))
 
-    print(f"{split} dataset length: ", len(loader))
+    print(f"{split} dataset length: {len(loader)}")
     return loader
 
 
@@ -380,22 +308,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
 
     
     for data_iter_step, batch in enumerate(metric_logger.log_every(data_loader, args.print_freq, header)):
-        # # batch: (view1=dict("img":BCHW), view2)
-        # view1, view2 = batch
-        # import matplotlib.pyplot as plt
-        # view1_imgs = view1["img"]
-        # view2_imgs = view2["img"]
-        # for b in range(view1_imgs.size()[0]):
-        #     view1_img = view1_imgs[b].permute(1, 2, 0).cpu().numpy()
-        #     plt.imshow(view1_img)
-        #     plt.savefig(join("/share/phoenix/nfs06/S9/kh775/code/dust3r/dust3r/utils/test/trainingpy_before_model", f"view1_img_{b}.png"))
-        #     plt.close()
-        #     view2_img = view2_imgs[b].permute(1, 2, 0).cpu().numpy()
-        #     plt.imshow(view2_img)
-        #     plt.savefig(join("/share/phoenix/nfs06/S9/kh775/code/dust3r/dust3r/utils/test/trainingpy_before_model", f"view2_img_{b}.png"))
-        #     plt.close()
-        # raise Exception
-        print(f"Start training for {data_iter_step} data_iter_step")
+        print(f"Start training for data_iter_step {data_iter_step}")
         start_time = time.time()
 
         epoch_f = epoch + data_iter_step / len(data_loader)
@@ -412,7 +325,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
 
         total_time = time.time() - start_time
         total_time_str = str(datetime.timedelta(seconds=int(total_time)))
-        print(f"Training time for {data_iter_step} data_iter_step: {total_time_str} seconds")
+        print(f"Training time for data_iter_step {data_iter_step}: {total_time_str} seconds")
 
         if not math.isfinite(loss_value):
             print("Loss is {}, stopping training".format(loss_value), force=True)
@@ -463,7 +376,6 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
 def test_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                    data_loader: Sized, device: torch.device, epoch: int,
                    args, log_writer=None, prefix='test'):
-
     model.eval()
     metric_logger = misc.MetricLogger(delimiter="  ")
     metric_logger.meters = defaultdict(lambda: misc.SmoothedValue(window_size=9**9))

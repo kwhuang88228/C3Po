@@ -14,6 +14,9 @@ from PIL.ImageOps import exif_transpose
 
 os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
 import cv2  # noqa
+import warnings
+
+warnings.simplefilter("ignore", PIL.Image.DecompressionBombWarning)
 
 try:
     from pillow_heif import register_heif_opener  # noqa
