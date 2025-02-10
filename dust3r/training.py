@@ -296,8 +296,8 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
     header = 'Epoch: [{}]'.format(epoch)
     accum_iter = args.accum_iter
     
-    # if log_writer is not None:
-    #     print('log_dir: {}'.format(log_writer.log_dir))
+    if log_writer is not None:
+        print('log_dir: {}'.format(log_writer.log_dir))
 
     if hasattr(data_loader, 'dataset') and hasattr(data_loader.dataset, 'set_epoch'):
         data_loader.dataset.set_epoch(epoch)
@@ -397,7 +397,7 @@ def test_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
         metric_logger.update(loss=float(loss_value))
         # loss_value, loss_details = loss_tuple  # criterion returns two values
         # metric_logger.update(loss=float(loss_value), **loss_details)
-        if batch_num == 0 and (epoch == 0 or (epoch + 1) % 10 == 0):
+        if batch_num == 0 and (epoch == 0 or (epoch + 1) % 10 == 0) and log_writer is not None:
             viz = get_viz(result["view1"], result["view2"], result["pred1"], result["pred2"])
             log_writer.add_figure('test_samples', viz, epoch)
 

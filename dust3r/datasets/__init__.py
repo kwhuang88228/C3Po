@@ -18,8 +18,7 @@ from .wildrgbd import WildRGBD  # noqa
 
 
 def collate_fn(batch):  # batch:[(view1, view2) * batch_size]
-    # print(view1["img"].size(), view1["plan_xys"].size())  # Should be torch.Size([8, 3, 224, 224]) torch.Size([8, 733, 2])   
-    # print("in collate_fn...")
+    # print(view1["img"].size(), view1["plan_xys"].shape)  # Should be torch.Size([8, 3, 224, 224]) torch.Size([8, 733, 2])   
     max_xys_len = max(item[0]["plan_xys"].shape[0] for item in batch)
     # print(f"max_xys_len: {max_xys_len}")
     
