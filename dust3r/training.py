@@ -268,13 +268,15 @@ def save_final_model(args, epoch, model_without_ddp, best_so_far=None):
 
 def build_dataset(dataset, batch_size, num_workers, test=False):
     split = ['Train', 'Test'][test]
-    print(f'Building {split} Data loader for dataset: ', dataset)
-    loader = get_data_loader(dataset,
-                             batch_size=batch_size,
-                             num_workers=num_workers,
-                             pin_mem=True,
-                             shuffle=not (test),
-                             drop_last=not (test))
+    print(f'Building {split} Data loader for dataset')
+    loader = get_data_loader(
+        dataset,
+        batch_size=batch_size,
+        num_workers=num_workers,
+        pin_mem=True,
+        shuffle=not (test),
+        drop_last=not (test)
+    )
 
     print(f"{split} dataset length: {len(loader)}")
     return loader
