@@ -15,11 +15,11 @@ def reverse_CoordNorm(np_array, size):
     return (np_array + 1) * (size - 1) / 2
 
 
-def get_rgbs(pred):
+def get_rgbs(pred, image_size):
     rgbs = []
     for pred_x, pred_y in pred:
-        r = pred_x / 255.0
-        b = pred_y / 255.0
+        r = max(0.0, min(pred_x / image_size, 1.0)) 
+        b = max(0.0, min(pred_y / image_size, 1.0)) 
         rgbs.append((r, 0, b))
     return rgbs
 
@@ -32,7 +32,7 @@ def get_viz(view1, view2, pred1, pred2):
         # print(f"conf shape: {conf.shape}; {np.max(conf)}; {np.min(conf)}")
 
         B, image_size, _,  _ = view1_img.shape
-        fig, axes = plt.subplots(B, 4, figsize=(10, B*4))
+        fig, axes = plt.subplots(B, 4, figsize=(16, B*4))
         titles = ["gt", "pred", "confidence", "image"]
         for b in range(B):
             if B == 1:
@@ -48,7 +48,8 @@ def get_viz(view1, view2, pred1, pred2):
                 y_coords = view2["image_xys"][b][:,1].cpu().numpy()
                 pred = pred[y_coords, x_coords, :2]
                 pred = reverse_CoordNorm(pred, image_size)
-                axes[1].scatter(pred[:,0], pred[:,1], s=5)
+                rgbs = get_rgbs(pred, image_size)
+                axes[1].scatter(pred[:,0], pred[:,1], s=5, c=rgbs)
                 axes[1].set_title(titles[1])  
 
                 conf = pred2["conf"][b].detach().cpu().numpy()
@@ -58,7 +59,6 @@ def get_viz(view1, view2, pred1, pred2):
                 view2_img_scaled = reverse_ImgNorm(view2_img[b])
                 axes[3].imshow(view2_img_scaled)   
                 image_xys = view1["image_xys"][b].cpu().numpy()   
-                rgbs = get_rgbs(pred)
                 axes[3].scatter(image_xys[:,0], image_xys[:,1], s=1, c=rgbs) 
                 axes[3].set_title(titles[3])      
             else:
@@ -74,7 +74,8 @@ def get_viz(view1, view2, pred1, pred2):
                 y_coords = view2["image_xys"][b][:,1].cpu().numpy()
                 pred = pred[y_coords, x_coords, :2]
                 pred = reverse_CoordNorm(pred, image_size)
-                axes[b, 1].scatter(pred[:,0], pred[:,1], s=5)
+                rgbs = get_rgbs(pred, image_size)
+                axes[b, 1].scatter(pred[:,0], pred[:,1], s=5, c=rgbs)
                 axes[b, 1].set_title(titles[1])  
 
                 conf = pred2["conf"][b].detach().cpu().numpy()
@@ -84,9 +85,9 @@ def get_viz(view1, view2, pred1, pred2):
                 view2_img_scaled = reverse_ImgNorm(view2_img[b])
                 axes[b, 3].imshow(view2_img_scaled)   
                 image_xys = view1["image_xys"][b].cpu().numpy()   
-                rgbs = get_rgbs(pred)
                 axes[b, 3].scatter(image_xys[:,0], image_xys[:,1], s=1, c=rgbs) 
                 axes[b, 3].set_title(titles[3])  
+        plt.subplots_adjust(hspace=0.0, wspace=0.0)  # Set both to 0 to remove space
         plt.tight_layout()
         return fig
     viz = gen_plot(view1, view2, pred1, pred2)
