@@ -151,7 +151,7 @@ def train(args):
     if args.pretrained and not args.resume:
         print('Loading pretrained: ', args.pretrained)
         ckpt = torch.load(args.pretrained, map_location=device)
-        # print(model.load_state_dict(ckpt['model'], strict=False))
+        print(model.load_state_dict(ckpt['model'], strict=False))
         del ckpt  # in case it occupies memory
 
     eff_batch_size = args.batch_size * args.accum_iter * misc.get_world_size()
