@@ -100,6 +100,8 @@ class AsymmetricCroCo3DStereo (
             for key, value in ckpt.items():
                 if key.startswith('enc_blocks'):
                     new_ckpt[key.replace('enc_blocks', 'enc_blocks2')] = value
+                elif key in ['enc_norm.weight', 'enc_norm.bias']:
+                    new_ckpt[key.replace('enc_norm', 'enc_norm2')] = value
         return super().load_state_dict(new_ckpt, **kw)
 
     def set_freeze(self, freeze):  # this is for use by downstream models
