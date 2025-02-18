@@ -32,9 +32,10 @@ def get_viz(view1, view2, pred1, pred2):
         # print(f"conf shape: {conf.shape}; {np.max(conf)}; {np.min(conf)}")
 
         B, image_size, _,  _ = view1_img.shape
-        titles = ["gt", "pred", "conf_plan", "conf_image", "image"]
+        # titles = ["gt", "pred", "conf_plan", "conf_image", "image"]
+        titles = ["gt", "pred2", "conf_pred2", "pred1", "conf_pred1", "image"]
         N = len(titles)
-        fig, axes = plt.subplots(B, N, figsize=(20, B*N))
+        fig, axes = plt.subplots(B, N, figsize=(24, B*N))
         
         for b in range(B):
             if B == 1:
@@ -54,19 +55,28 @@ def get_viz(view1, view2, pred1, pred2):
                 axes[1].scatter(pred[:,0], pred[:,1], s=5, c=rgbs)
                 axes[1].set_title(titles[1])  
 
-                conf1 = pred1["conf"][b].detach().cpu().numpy()
-                axes[2].imshow(conf1, cmap="jet")   
+                conf2 = pred2["conf"][b].detach().cpu().numpy()
+                axes[2].imshow(conf2, cmap="jet")   
                 axes[2].set_title(titles[2]) 
 
-                conf2 = pred2["conf"][b].detach().cpu().numpy()
-                axes[3].imshow(conf2, cmap="jet")   
+                axes[3].imshow(view1_img_scaled)    
+                pred = pred1["pts3d"][b].detach().cpu().numpy()
+                plan_xs = view2["plan_xys"][b][:,0].cpu().numpy()
+                plan_ys = view2["plan_xys"][b][:,1].cpu().numpy()
+                pred = pred[plan_ys, plan_xs, :2]
+                pred = reverse_CoordNorm(pred, image_size)
+                axes[3].scatter(pred[:,0], pred[:,1], s=5)
                 axes[3].set_title(titles[3]) 
 
+                conf1 = pred1["conf"][b].detach().cpu().numpy()
+                axes[4].imshow(conf1, cmap="jet")   
+                axes[4].set_title(titles[4]) 
+
                 view2_img_scaled = reverse_ImgNorm(view2_img[b])
-                axes[4].imshow(view2_img_scaled)   
+                axes[5].imshow(view2_img_scaled)   
                 image_xys = view1["image_xys"][b].cpu().numpy()   
-                axes[4].scatter(image_xys[:,0], image_xys[:,1], s=1, c=rgbs) 
-                axes[4].set_title(titles[4])      
+                axes[5].scatter(image_xys[:,0], image_xys[:,1], s=1, c=rgbs) 
+                axes[5].set_title(titles[5])      
             else:
                 view1_img_scaled = reverse_ImgNorm(view1_img[b])
                 axes[b, 0].imshow(view1_img_scaled)
@@ -84,19 +94,28 @@ def get_viz(view1, view2, pred1, pred2):
                 axes[b, 1].scatter(pred[:,0], pred[:,1], s=5, c=rgbs)
                 axes[b, 1].set_title(titles[1])  
 
-                conf1 = pred1["conf"][b].detach().cpu().numpy()
-                axes[b, 2].imshow(conf1, cmap="jet")   
+                conf2 = pred2["conf"][b].detach().cpu().numpy()
+                axes[b, 2].imshow(conf2, cmap="jet")   
                 axes[b, 2].set_title(titles[2]) 
 
-                conf2 = pred2["conf"][b].detach().cpu().numpy()
-                axes[b, 3].imshow(conf2, cmap="jet")   
+                axes[b, 3].imshow(view1_img_scaled)    
+                pred = pred1["pts3d"][b].detach().cpu().numpy()
+                plan_xs = view2["plan_xys"][b][:,0].cpu().numpy()
+                plan_ys = view2["plan_xys"][b][:,1].cpu().numpy()
+                pred = pred[plan_ys, plan_xs, :2]
+                pred = reverse_CoordNorm(pred, image_size)
+                axes[b, 3].scatter(pred[:,0], pred[:,1], s=5)
                 axes[b, 3].set_title(titles[3]) 
 
+                conf1 = pred1["conf"][b].detach().cpu().numpy()
+                axes[b, 4].imshow(conf1, cmap="jet")   
+                axes[b, 4].set_title(titles[4]) 
+
                 view2_img_scaled = reverse_ImgNorm(view2_img[b])
-                axes[b, 4].imshow(view2_img_scaled)   
+                axes[b, 5].imshow(view2_img_scaled)   
                 image_xys = view1["image_xys"][b].cpu().numpy()   
-                axes[b, 4].scatter(image_xys[:,0], image_xys[:,1], s=1, c=rgbs) 
-                axes[b, 4].set_title(titles[4])  
+                axes[b, 5].scatter(image_xys[:,0], image_xys[:,1], s=1, c=rgbs) 
+                axes[b, 5].set_title(titles[5])  
         plt.subplots_adjust(hspace=0.0, wspace=0.0)  # Set both to 0 to remove space
         plt.tight_layout()
         return fig
