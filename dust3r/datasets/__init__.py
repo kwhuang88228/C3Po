@@ -29,8 +29,8 @@ def collate_fn(batch):  # batch:[(view1, view2) * batch_size]
     view1_instances = []
     view2_instances = []
     for view1, view2 in batch:  #(['img', 'plan_xys', 'image_xys'])
-        view1_img_batched.append(torch.Tensor(view1["img"]))
-        view2_img_batched.append(torch.Tensor(view2["img"]))
+        view1_img_batched.append(torch.squeeze(torch.Tensor(view1["img"]), 0))
+        view2_img_batched.append(torch.squeeze(torch.Tensor(view2["img"]), 0))
         view1_instances.append(view1["instance"])
         view2_instances.append(view2["instance"])
 

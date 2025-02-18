@@ -137,6 +137,11 @@ def load_images(folder_or_list, size, square_ok=False, verbose=True):
         else:
             # resize long side to 512
             img = _resize_pil_image(img, size)
+        # if "plan" in path:
+        #     img = get_scaled_plan(img)
+        #     img = resize_and_pad(img, "", size)
+        # else:
+        #     img = resize_and_pad(img, "", size)
         W, H = img.size
         cx, cy = W//2, H//2
         if size == 224:
@@ -206,11 +211,11 @@ def load_megascenes_augmented_images(pair, size, plan_xys, image_xys, square_ok=
     if verbose:
         print(f' - adding {plan_path} with resolution {plan_W1}x{plan_H1} --> {plan_W2}x{plan_H2}')
         print(f' - adding {img_path} with resolution {img_W1}x{img_H1} --> {img_W2}x{img_H2}')
-    image_views.append(dict(img=ImgNorm(plan_updated), true_shape=np.int32(
-        plan_updated.size[::-1]), idx=len(image_views), instance=str(len(image_views)), 
+    image_views.append(dict(img=ImgNorm(plan_updated)[None], true_shape=np.int32([
+        plan_updated.size[::-1]]), idx=len(image_views), instance=str(len(image_views)), 
         plan_xys=np.int32(plan_xys_updated), image_xys=np.int32(image_xys_updated)))
-    image_views.append(dict(img=ImgNorm(img_updated), true_shape=np.int32(
-        img_updated.size[::-1]), idx=len(image_views), instance=str(len(image_views)), 
+    image_views.append(dict(img=ImgNorm(img_updated)[None], true_shape=np.int32([
+        img_updated.size[::-1]]), idx=len(image_views), instance=str(len(image_views)), 
         plan_xys=np.int32(plan_xys_updated), image_xys=np.int32(image_xys_updated)))
 
     if verbose:
