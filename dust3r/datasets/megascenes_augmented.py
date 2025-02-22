@@ -12,66 +12,6 @@ from dust3r.datasets.utils.transforms import ImgNorm
 from dust3r.utils.image import load_megascenes_augmented_images
 from scipy import stats
 
-try:
-    lanczos = PIL.Image.Resampling.LANCZOS
-    bicubic = PIL.Image.Resampling.BICUBIC
-except AttributeError:
-    lanczos = PIL.Image.LANCZOS
-    bicubic = PIL.Image.BICUBIC
-
-# class MegaScenesAugmented(BaseStereoViewDataset):
-#     def __init__(self, *args, data_dir, image_dir, **kwargs):
-#         self.data_dir = data_dir
-#         self.image_dir = image_dir
-#         super().__init__(*args, **kwargs)
-#         # assert self.split == 'train'
-#         self.loaded_data = self._load_data()
-        
-#     def _load_data(self):
-#         print("Loading image pairs...")
-#         with open(osp.join(self.data_dir, f"data_{self.split}", "one_plan_2", "image_pairs.csv"), "r") as f:
-#             self.image_pairs = []            
-#             reader = csv.reader(f)
-#             bad_pairs = [] #self._get_bad_pairs()
-#             for row in reader:
-#                 _, _, _, plan_name, image_name = row
-#                 if len(bad_pairs) > 0:
-#                     if (plan_name, image_name) not in bad_pairs:
-#                         self.image_pairs.append(row)
-#                 else:
-#                     self.image_pairs.append(row)
-#         print(f"{len(self.image_pairs)} image pairs loaded")
-
-#     def _get_bad_pairs(self):
-#         bad_pairs = set()
-#         for pair in list(open(os.path.join(self.data_dir, "bad_pairs.txt")).readlines()):
-#             plan_path, image_path = pair.replace("\n", "").split(" /")
-#             plan_name = plan_path.split("/")[-1]
-#             image_name = ("/"+image_path).replace(self.image_dir, "")
-#             image_name = "/".join(image_name.split("/")[2:])
-#             bad_pairs.add((plan_name, image_name))    
-#         return bad_pairs
-
-#     def __len__(self):
-#         return (len(self.image_pairs))
-
-#     def __getitem__(self, idx):
-#         idx = idx[0] if self.split == "train" else idx
-#         i, landmark, comp, plan_name, image_name = self.image_pairs[idx]
-#         plan_path = os.path.join(self.image_dir, landmark, "plans", plan_name)
-#         image_path = os.path.join(self.image_dir,  landmark, "images", image_name)
-#         xys_path = os.path.join(self.data_dir, f"data_{self.split}", "one_plan_2", "coords", f"{int(i):08}.npy")
-#         xys = np.load(xys_path)
-#         images = load_megascenes_augmented_images(
-#             [plan_path, image_path], 
-#             size=224, 
-#             plan_xys=xys[0],
-#             image_xys=xys[1], 
-#             verbose=False
-#         )
-#         view1, view2 = images
-#         return view1, view2
-
 
 class MegaScenesAugmented(BaseStereoViewDataset):
     def __init__(self, *args, data_dir, image_dir, split, **kwargs):
@@ -118,18 +58,6 @@ class MegaScenesAugmented(BaseStereoViewDataset):
             view['img'] = view['img'].swapaxes(1, 2)
             view['xys'] = view['xys'][:,[1, 0]]
 
-            # assert view['valid_mask'].shape == (height, width)
-            # view['valid_mask'] = view['valid_mask'].swapaxes(0, 1)
-
-            # assert view['depthmap'].shape == (height, width)
-            # view['depthmap'] = view['depthmap'].swapaxes(0, 1)
-
-            # assert view['pts3d'].shape == (height, width, 3)
-            # view['pts3d'] = view['pts3d'].swapaxes(0, 1)
-
-            # # transpose x and y pixels
-            # view['camera_intrinsics'] = view['camera_intrinsics'][[1, 0, 2]]
-
     def is_good_type(self, key, v):
         """ returns (is_good, err_msg) 
         """
@@ -139,7 +67,7 @@ class MegaScenesAugmented(BaseStereoViewDataset):
             return False, f"bad {v.dtype=}"
         return True, None
 
-    def _crop_resize_if_necessary(self, image, xys, intrinsics, resolution, is_plan, rng=None, info=None):
+    def _crop_resize_if_necessary(self, image, xys, resolution, is_plan, rng=None, info=None):
         if not isinstance(image, PIL.Image.Image):
             image = PIL.Image.fromarray(image)
         
@@ -170,20 +98,15 @@ class MegaScenesAugmented(BaseStereoViewDataset):
         new_size = tuple(int(round(x*ratio)) for x in image.size)
         image = image.resize(new_size, interp)
         W, H = image.size
-        cx, cy = W//2, H//2 #ok
+        cx, cy = W//2, H//2 
         halfh, halfw = resolution//2
         
         image = image.crop((cx-halfw, cy-halfh, cx+halfw, cy+halfh)) # (l, t, r, b)
 
         offset = np.array([-(cx-halfw), -(cy-halfh)])
-        # np.array([0, (size - H_target) // 2]) if W_target > H_target else np.array([(size - W_target) // 2, 0])
         xys = xys * ratio + offset
 
-
-        intrinsics = (image.size[0] / 2, image.size[1] / 2)
-    
-
-        return image, xys, intrinsics
+        return image, xys
 
     def _get_views(self, pair_idx, resolution, rng):
         i, landmark, comp, plan_name, image_name = self.image_pairs[pair_idx]
@@ -203,8 +126,7 @@ class MegaScenesAugmented(BaseStereoViewDataset):
             else:
                 image = PIL.Image.open(path).convert('RGB')
 
-            intrinsics = np.array(image.size) / 2
-            image, xys, intrinsics = self._crop_resize_if_necessary(image, xys, intrinsics, resolution, is_plan=not (i), rng=rng)
+            image, xys = self._crop_resize_if_necessary(image, xys, resolution, is_plan=not (i), rng=rng)
 
             views.append(dict(
                 img=image,
@@ -252,7 +174,6 @@ class MegaScenesAugmented(BaseStereoViewDataset):
                 assert res, f"{err_msg} with {key}={val} for view"
 
         for view in views:
-            # print(view['xys'][:5, ])
             # transpose to make sure all views are the same size
             self.transpose_to_landscape(view)
             # this allows to check whether the RNG is is the same state each time
