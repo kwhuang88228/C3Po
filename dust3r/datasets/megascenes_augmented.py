@@ -34,6 +34,9 @@ class MegaScenesAugmented(BaseStereoViewDataset):
                 i, landmark, comp, plan_name, image_name = row
                 if (plan_name, image_name) not in bad_pairs and (landmark, comp) not in [("San_Lorenzo_(Genoa)","1"), ("Temple_Church,_London","0")]:
                     self.image_pairs.append(row)
+                # if int(i) > 5:
+                #     break
+                # break
         print(f"{len(self.image_pairs)} image pairs loaded")
 
     def _get_bad_pairs(self):
@@ -55,8 +58,8 @@ class MegaScenesAugmented(BaseStereoViewDataset):
         if width < height:
             # rectify portrait to landscape
             assert view['img'].shape == (3, height, width)
-            view['img'] = view['img'].swapaxes(1, 2)
-            view['xys'] = view['xys'][:,[1, 0]]
+            view['img'] = view['img'].flip(2).transpose(1, 2)
+            view['xys'] = np.column_stack((view['xys'][:, 1], -view['xys'][:, 0])) + np.array([0, width])
 
     def is_good_type(self, key, v):
         """ returns (is_good, err_msg) 
@@ -74,12 +77,10 @@ class MegaScenesAugmented(BaseStereoViewDataset):
         H, W = image.size
         if H > 1.1 * W:
             # image is portrait mode
-            # print("flipping resolution1")
             resolution = resolution[::-1]
         elif 0.9 < H / W < 1.1 and resolution[0] != resolution[1]:
             # image is square, so we chose (portrait, landscape) randomly
             if rng.integers(2):
-                # print("flipping resolution2")
                 resolution = resolution[::-1]
 
         if is_plan:
@@ -88,7 +89,7 @@ class MegaScenesAugmented(BaseStereoViewDataset):
             image_scale = max_h / image.size[1]
             image = image.resize((round(image.size[0] * image_scale), max_h))
         
-        resolution = np.array(resolution)
+        resolution = np.array(resolution[::-1])
         image_size = np.array(image.size)
         ratio = max(resolution/image_size)
         if ratio < 1:
@@ -99,13 +100,23 @@ class MegaScenesAugmented(BaseStereoViewDataset):
         image = image.resize(new_size, interp)
         W, H = image.size
         cx, cy = W//2, H//2 
-        halfh, halfw = resolution//2
+        # xys_center = self.get_xys_center(xys)
+        xys_center = (cx, cy)
+        halfw, halfh = resolution//2
         
-        image = image.crop((cx-halfw, cy-halfh, cx+halfw, cy+halfh)) # (l, t, r, b)
+        l, t, r, b = (xys_center[0]-halfw, xys_center[1]-halfh, xys_center[0]+halfw, xys_center[1]+halfh)
+        if l >= 0 and t >= 0 and r < resolution[0] and b < resolution[1]:
+            image = image.crop((l, t, r, b))
 
-        offset = np.array([-(cx-halfw), -(cy-halfh)])
-        xys = xys * ratio + offset
+            offset = np.array([-l, -t])
+            xys = xys * ratio + offset
+        else:
+            image = image.crop((l, t, r, b))
 
+            offset = np.array([-l, -t])
+            xys = xys * ratio + offset
+
+        # xys = xys * ratio
         return image, xys
 
     def _get_views(self, pair_idx, resolution, rng):
