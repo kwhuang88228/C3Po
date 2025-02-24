@@ -26,8 +26,6 @@ def collate_fn(batch):  # batch:[(view1, view2) * batch_size]
     view2_img_batched = [] 
     view1_xys_batched = []
     view2_xys_batched = []
-    # plan_xys_batched = []
-    # image_xys_batched = []
     view1_instances = []
     view2_instances = []
     for view1, view2 in batch:  #(['img', 'plan_xys', 'image_xys'])
@@ -84,7 +82,6 @@ def get_data_loader(dataset, batch_size, num_workers=8, shuffle=True, drop_last=
         dataset,
         sampler=sampler,
         batch_size=batch_size,
-        collate_fn=collate_fn,
         num_workers=num_workers,
         collate_fn=collate_fn,
         pin_memory=pin_mem,
