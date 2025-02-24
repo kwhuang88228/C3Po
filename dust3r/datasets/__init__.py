@@ -19,13 +19,15 @@ from .wildrgbd import WildRGBD  # noqa
 
 def collate_fn(batch):  # batch:[(view1, view2) * batch_size]
     # print(view1["img"].size(), view1["plan_xys"].shape)  # Should be torch.Size([8, 3, 224, 224]) torch.Size([8, 733, 2])   
-    max_xys_len = max(item[0]["plan_xys"].shape[0] for item in batch)
+    max_xys_len = max(item[0]["xys"].shape[0] for item in batch)
     # print(f"max_xys_len: {max_xys_len}")
     
     view1_img_batched = []
     view2_img_batched = [] 
-    plan_xys_batched = []
-    image_xys_batched = []
+    view1_xys_batched = []
+    view2_xys_batched = []
+    # plan_xys_batched = []
+    # image_xys_batched = []
     view1_instances = []
     view2_instances = []
     for view1, view2 in batch:  #(['img', 'plan_xys', 'image_xys'])
@@ -34,23 +36,21 @@ def collate_fn(batch):  # batch:[(view1, view2) * batch_size]
         view1_instances.append(view1["instance"])
         view2_instances.append(view2["instance"])
 
-        plan_xys_batched.append(torch.from_numpy(np.pad(view1["plan_xys"], ((0, max_xys_len - view1["plan_xys"].shape[0]), (0, 0)), mode="constant", constant_values=0)))
-        image_xys_batched.append(torch.from_numpy(np.pad(view1["image_xys"], ((0, max_xys_len - view1["image_xys"].shape[0]), (0, 0)), mode="constant", constant_values=0)))
+        view1_xys_batched.append(torch.from_numpy(np.pad(view1["xys"], ((0, max_xys_len - view1["xys"].shape[0]), (0, 0)), mode="constant", constant_values=0)))
+        view2_xys_batched.append(torch.from_numpy(np.pad(view2["xys"], ((0, max_xys_len - view2["xys"].shape[0]), (0, 0)), mode="constant", constant_values=0)))
 
     view1_img_batched = torch.stack(view1_img_batched)
     view2_img_batched = torch.stack(view2_img_batched)
-    plan_xys_batched = torch.stack(plan_xys_batched)
-    image_xys_batched = torch.stack(image_xys_batched)
+    view1_xys_batched = torch.stack(view1_xys_batched)
+    view2_xys_batched = torch.stack(view2_xys_batched)
     final_view1 = dict(
         img=view1_img_batched, 
-        plan_xys=plan_xys_batched,
-        image_xys=image_xys_batched,
+        xys=view1_xys_batched,
         instance=view1_instances
     )
     final_view2 = dict(       
         img=view2_img_batched,
-        plan_xys=plan_xys_batched,
-        image_xys=image_xys_batched,
+        xys=view2_xys_batched,
         instance=view2_instances
     )
     return final_view1, final_view2

@@ -163,10 +163,11 @@ class PointLoss(MultiLoss):
         # view1=view2: dict("img": Tensor(BCHW=(4,3,224,224)), "true_shape": Tensor(4,2), "instance": list(4), "plan_xy": Tensor(4,2), "image_xy": Tensor(4,2))
         # pred1: dict("pts3d": Tensor(BHWC=(4,224,224,3)), "conf": Tensor(BHW=(4,224,224)))
         # pred2: dict("pts3d_in_other_view": Tensor(BHWC), "conf": Tensor(BHW))
-        plan_xys_with_pad = gt1["plan_xys"]            #(B,max_xy_len,2)
-        img_xys_with_pad = gt1["image_xys"]            #(B,max_xy_len,2)
+        plan_xys_with_pad = gt1["xys"]            #(B,max_xy_len,2)
+        img_xys_with_pad = gt2["xys"]            #(B,max_xy_len,2)
         last_non_zero_indices = self.get_last_non_zero_indices(img_xys_with_pad)
-        preds = torch.Tensor([]).cuda()
+        pred1s = torch.Tensor([]).cuda()
+        pred2s = torch.Tensor([]).cuda()
         gts = torch.Tensor([]).cuda()
         image_dim = gt1["img"].size()[2]
 
@@ -176,22 +177,43 @@ class PointLoss(MultiLoss):
             plan_xys = plan_xys_with_pad[b][:last_non_zero_indices[b],:]
             plan_xys_norm = self.coordNorm(plan_xys, image_dim)
 
-            x_coords = img_xys[:, 0]
-            y_coords = img_xys[:, 1] 
-            x_coords = x_coords.long()
-            y_coords = y_coords.long()
-            pred = p[y_coords, x_coords, :2]
-            # pred_min = pred.min()
-            # pred_max = pred.max()
-            # pred = (pred - pred_min) / (pred_max - pred_min) * size
-
-            preds = torch.cat((preds, pred.flatten()))
+            img_xs = img_xys[:, 0]
+            img_ys = img_xys[:, 1] 
+            img_xs = img_xs.long()
+            img_ys = img_ys.long()
+            # pred2 = p[img_ys, img_xs, :2]
+            pred2 = torch.stack((p[img_ys, img_xs, 0], p[img_ys, img_xs, 2]), dim=1)
+            
+            pred2s = torch.cat((pred2s, pred2.flatten()))
             gts = torch.cat((gts, plan_xys_norm.flatten()))
 
-            assert preds.size() == gts.size()
+            assert pred2s.size() == gts.size()
+        pred2_loss = self.pixel_loss(pred2s, gts).float()
 
-        loss = self.pixel_loss(preds, gts).float()
-        return loss
+        # "identity loss"
+        x = torch.arange(0, image_dim)  
+        y = torch.arange(0, image_dim)
+        xx, yy = torch.meshgrid(x, y)
+        coordinates = torch.stack((xx.flatten(), yy.flatten()), dim=1).cuda()
+        coordinates_norm = self.coordNorm(coordinates, image_dim)
+        coordinates_norms = torch.Tensor([]).cuda()
+
+        for b, p in enumerate(pred1["pts3d"]):
+            plan_xs = coordinates[:, 0]
+            plan_ys = coordinates[:, 1] 
+            plan_xs = plan_xs.long()
+            plan_ys = plan_ys.long()   
+            # pred1 = torch.stack((p[plan_xs, plan_ys, 0], p[plan_xs, plan_ys, 1]), dim=1)
+            pred1 = torch.stack((p[plan_xs, plan_ys, 0], p[plan_xs, plan_ys, 2]), dim=1)
+
+            assert pred1.size() == coordinates_norm.size()
+            
+            pred1s = torch.cat((pred1s, pred1.flatten()))
+            coordinates_norms = torch.cat((coordinates_norms, coordinates_norm.flatten()))
+
+        pred1_loss = self.pixel_loss(pred1s, coordinates_norms).float()
+
+        return pred1_loss + pred2_loss
     
 
 class Regr3D (Criterion, MultiLoss):

@@ -21,7 +21,7 @@ def get_viz(view1, view2, pred1, pred2):
         view2_img = view2["img"].permute(0, 2, 3, 1).cpu().numpy()
 
         B, image_size, _,  _ = view1_img.shape
-        fig, axes = plt.subplots(B, 6, figsize=(10, B*6))
+        fig, axes = plt.subplots(B, 6, figsize=(20, B*6))
         titles = ["img1", "pred1", "conf1", "img2", "pred2", "conf2"]
         for b in range(B):
             if B == 1:
@@ -32,7 +32,7 @@ def get_viz(view1, view2, pred1, pred2):
                 axes[1].set_title(titles[1])          
 
                 conf1 = pred1["conf"][b].cpu().numpy()
-                axes[2].imshow(conf1, cmap="jet")    
+                axes[2].imshow(conf1)    
                 axes[2].set_title(titles[2])  
 
                 axes[3].imshow(reverse_ImgNorm(view2_img[b]))
@@ -42,7 +42,7 @@ def get_viz(view1, view2, pred1, pred2):
                 axes[4].set_title(titles[4])          
 
                 conf2 = pred2["conf"][b].cpu().numpy()
-                axes[5].imshow(conf2, cmap="jet")    
+                axes[5].imshow(conf2)    
                 axes[5].set_title(titles[5]) 
             else:
                 axes[b, 0].imshow(reverse_ImgNorm(view1_img[b]))
@@ -52,7 +52,7 @@ def get_viz(view1, view2, pred1, pred2):
                 axes[b, 1].set_title(titles[1])          
 
                 conf1 = pred1["conf"][b].cpu().numpy()
-                axes[b, 2].imshow(conf1, cmap="jet")    
+                axes[b, 2].imshow(conf1)    
                 axes[b, 2].set_title(titles[2])  
 
                 axes[b, 3].imshow(reverse_ImgNorm(view2_img[b]))
@@ -62,7 +62,7 @@ def get_viz(view1, view2, pred1, pred2):
                 axes[b, 4].set_title(titles[4])          
 
                 conf2 = pred2["conf"][b].cpu().numpy()
-                axes[b, 5].imshow(conf2, cmap="jet")    
+                axes[b, 5].imshow(conf2)    
                 axes[b, 5].set_title(titles[5]) 
         plt.tight_layout()
         return fig
@@ -77,7 +77,7 @@ if __name__ == '__main__':
     niter = 300
 
     # model_name = "naver/DUSt3R_ViTLarge_BaseDecoder_512_dpt"
-    model_name = "/share/phoenix/nfs06/S9/kh775/code/dust3r/checkpoints/DUSt3R_ViTLarge_BaseDecoder_224_linear.pth"
+    model_name = "/share/phoenix/nfs06/S9/kh775/code/dust3r/checkpoints/DUSt3R_ViTLarge_BaseDecoder_512_dpt.pth"
     # model_name = "naver/DUSt3R_ViTLarge_BaseDecoder_224_linear"
     # you can put the path to a local checkpoint in model_name if needed
     model = AsymmetricCroCo3DStereo.from_pretrained(model_name).to(device)
@@ -92,7 +92,7 @@ if __name__ == '__main__':
     # images = load_images([img2_path, img1_path], size=224)  # [img1: ['img': [1, 3, 224, 224], 'true_shape', 'idx', 'instance'], img2]
     
     plan_xys, image_xys = np.load(npx_path)
-    images = load_megascenes_augmented_images([img1_path, img2_path], size=224, plan_xys=plan_xys, image_xys=image_xys)
+    images = load_megascenes_augmented_images([img1_path, img2_path], size=512, plan_xys=plan_xys, image_xys=image_xys)
     # pairs = make_pairs(images, scene_graph='complete', prefilter=None, symmetrize=False)
     output = inference([(images[0], images[1])], model, device, batch_size=batch_size)
 
@@ -100,7 +100,7 @@ if __name__ == '__main__':
     view1, pred1 = output['view1'], output['pred1']
     view2, pred2 = output['view2'], output['pred2']
     viz = get_viz(view1, view2, pred1, pred2)
-    viz.savefig("/share/phoenix/nfs06/S9/kh775/code/dust3r/inference/dust3r_pretrained/old/plan_image_pair/customloadimage_flipped.png")
+    viz.savefig("/share/phoenix/nfs06/S9/kh775/code/dust3r/inference/512dpt/test1.png")
     # viz.savefig("/share/phoenix/nfs06/S9/kh775/code/dust3r/experiments/aachen_cathedral_matches2.png")
     
     # here, view1, pred1, view2, pred2 are dicts of lists of len(2)

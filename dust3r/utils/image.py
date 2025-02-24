@@ -74,7 +74,7 @@ def _resize_pil_image(img, long_edge_size):
     new_size = tuple(int(round(x*long_edge_size/S)) for x in img.size)
     return img.resize(new_size, interp)
 
-def resize_and_pad(img, coords, size):
+def resize_and_pad(img, coords, size, is_image):
     W, H = img.size
 
     ratio = min(size / W, size / H)
@@ -93,7 +93,8 @@ def resize_and_pad(img, coords, size):
     resized_coords = coords * ratio
     offset = np.array([0, (size - H_target) // 2]) if W_target > H_target else np.array([(size - W_target) // 2, 0])
     updated_coords = resized_coords + offset
-    updated_coords = np.clip(updated_coords, 0, size-1)
+    if is_image:
+        updated_coords = np.clip(updated_coords, 0, size-1)
         
     return img_resized_padded, updated_coords
 
@@ -194,8 +195,8 @@ def load_megascenes_augmented_images(pair, size, plan_xys, image_xys, square_ok=
     # plt.savefig(os.path.join("/share/phoenix/nfs06/S9/kh775/code/dust3r/dust3r/utils/test/2", img_path.split("/")[-1]))
     # plt.close
 
-    plan_updated, plan_xys_updated = resize_and_pad(scaled_plan, plan_xys, size)
-    img_updated, image_xys_updated = resize_and_pad(img, image_xys, size)
+    plan_updated, plan_xys_updated = resize_and_pad(scaled_plan, plan_xys, size, is_image=False)
+    img_updated, image_xys_updated = resize_and_pad(img, image_xys, size, is_image=True)
 
     # plt.imshow(plan_resized_padded)
     # plt.savefig(os.path.join("/share/phoenix/nfs06/S9/kh775/code/dust3r/dust3r/utils/test/2", "resized_"+plan_path.split("/")[-1]))
@@ -213,10 +214,10 @@ def load_megascenes_augmented_images(pair, size, plan_xys, image_xys, square_ok=
         print(f' - adding {img_path} with resolution {img_W1}x{img_H1} --> {img_W2}x{img_H2}')
     image_views.append(dict(img=ImgNorm(plan_updated)[None], true_shape=np.int32([
         plan_updated.size[::-1]]), idx=len(image_views), instance=str(len(image_views)), 
-        plan_xys=np.int32(plan_xys_updated), image_xys=np.int32(image_xys_updated)))
+        xys=np.int32(plan_xys_updated)))
     image_views.append(dict(img=ImgNorm(img_updated)[None], true_shape=np.int32([
         img_updated.size[::-1]]), idx=len(image_views), instance=str(len(image_views)), 
-        plan_xys=np.int32(plan_xys_updated), image_xys=np.int32(image_xys_updated)))
+        xys=np.int32(image_xys_updated)))
 
     if verbose:
         print(f' (Found {len(image_views)} images)')

@@ -17,14 +17,18 @@ class MegaScenesAugmented(BaseStereoViewDataset):
         self.loaded_data = self._load_data()
         
     def _load_data(self):
+        bad_landmark_comp_pairs = [
+            ("San_Lorenzo_(Genoa)", "1"), 
+            ("Temple_Church,_London", "0")
+        ]
         print("Loading image pairs...")
         with open(osp.join(self.data_dir, f"data_{self.split}", "image_pairs.csv"), "r") as f:
             self.image_pairs = []            
             reader = csv.reader(f)
             bad_pairs = self._get_bad_pairs()
             for row in reader:
-                _, _, _, plan_name, image_name = row
-                if (plan_name, image_name) not in bad_pairs:
+                i, landmark, comp, plan_name, image_name = row
+                if (plan_name, image_name) not in bad_pairs and (landmark, comp) not in bad_landmark_comp_pairs:
                     self.image_pairs.append(row)
         print(f"{len(self.image_pairs)} image pairs loaded")
 
@@ -48,9 +52,10 @@ class MegaScenesAugmented(BaseStereoViewDataset):
         image_path = os.path.join(self.image_dir,  landmark, "images", image_name)
         xys_path = os.path.join(self.data_dir, f"data_{self.split}", "coords", f"{int(i):06}.npy")
         xys = np.load(xys_path)
+        size = self._resolutions[0][0]
         images = load_megascenes_augmented_images(
             [plan_path, image_path], 
-            size=224, 
+            size=size, 
             plan_xys=xys[0],
             image_xys=xys[1], 
             verbose=False

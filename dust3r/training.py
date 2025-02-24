@@ -25,6 +25,7 @@ from typing import Sized
 
 import torch
 import torch.backends.cudnn as cudnn
+import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
 torch.backends.cuda.matmul.allow_tf32 = True  # for gpu >= Ampere and pytorch >= 1.12
 
@@ -218,21 +219,22 @@ def train(args):
             log_writer=log_writer,
             args=args)
 
-        # Test on multiple datasets
-        new_best = False
-        if (epoch > 0 and args.eval_freq > 0 and epoch % args.eval_freq == 0):
-            test_stats = {}
-            # test_name = args.test_dataset.split("/")[-1]
-            test_name = "test"
-            # for test_name, testset in data_loader_test.items():
-            stats = test_one_epoch(model, test_criterion, data_loader_test,
-                                    device, epoch, log_writer=log_writer, args=args, prefix=test_name)
-            test_stats[test_name] = stats
+        # # Test on multiple datasets
+        # new_best = False
+        # # if (epoch > 0 and args.eval_freq > 0 and epoch % args.eval_freq == 0):
+        # if (args.eval_freq > 0 and epoch % args.eval_freq == 0):
+        #     test_stats = {}
+        #     # test_name = args.test_dataset.split("/")[-1]
+        #     test_name = "test"
+        #     # for test_name, testset in data_loader_test.items():
+        #     stats = test_one_epoch(model, test_criterion, data_loader_test,
+        #                             device, epoch, log_writer=log_writer, args=args, prefix=test_name)
+        #     test_stats[test_name] = stats
 
-            # Save best of all
-            if stats['loss'] < best_so_far:
-                best_so_far = stats['loss']
-                new_best = True
+        #     # Save best of all
+        #     if stats['loss'] < best_so_far:
+        #         best_so_far = stats['loss']
+        #         new_best = True
 
         # Save more stuff
         write_log_stats(epoch, train_stats, test_stats)
@@ -284,6 +286,24 @@ def build_dataset(dataset, batch_size, num_workers, test=False):
 
 def is_main_process():
     return torch.distributed.get_rank() == 0
+
+def aggregate(dict1, dict2):
+    if not dict1:
+        return dict2
+    assert dict1.keys() == dict2.keys()
+    for key in dict1.keys():
+        if key == "instance":
+            continue
+        if key == "xys":
+            d1_xys_size = dict1[key].size(1)
+            d2_xys_size = dict2[key].size(1)
+            if d1_xys_size > d2_xys_size:
+                dict2[key] = F.pad(dict2[key], (0, 0, 0, d1_xys_size - d2_xys_size))
+            else:
+                dict1[key] = F.pad(dict1[key], (0, 0, 0, d2_xys_size - d1_xys_size))
+        dict1[key] = torch.cat((dict1[key], dict2[key]), dim=0)
+
+    return dict1
 
 def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                     data_loader: Sized, optimizer: torch.optim.Optimizer,
@@ -362,10 +382,21 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
             # for name, val in loss_details.items():
             #     log_writer.add_scalar('train_' + name, val, epoch_1000x)
 
-        if data_iter_step == 0 and (epoch == 0 or (epoch + 1) % 10 == 0):
-            viz = get_viz(result["view1"], result["view2"], result["pred1"], result["pred2"])
+        # if data_iter_step == 0 and (epoch == 0 or (epoch + 1) % 10 == 0):
+        if data_iter_step == 0:
+            view1s = dict()
+            view2s = dict()
+            pred1s = dict()
+            pred2s = dict()
+        if data_iter_step < 16:
+            view1s = aggregate(view1s, result["view1"])
+            view2s = aggregate(view2s, result["view2"])
+            pred1s = aggregate(pred1s, result["pred1"])
+            pred2s = aggregate(pred2s, result["pred2"])
+        if data_iter_step == 16:
+            viz = get_viz(view1s, view2s, pred1s, pred2s)
             log_writer.add_figure('train_samples', viz, epoch)
-            # print("Added image to log_writer")
+            del view1s, view2s, pred1s, pred2s
     
 
     # gather the stats from all processes
@@ -391,7 +422,7 @@ def test_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
     if hasattr(data_loader, 'sampler') and hasattr(data_loader.sampler, 'set_epoch'):
         data_loader.sampler.set_epoch(epoch)
 
-    for batch_num, batch in enumerate(metric_logger.log_every(data_loader, args.print_freq, header)):
+    for data_iter_step, batch in enumerate(metric_logger.log_every(data_loader, args.print_freq, header)):
         result = loss_of_one_batch(batch, model, criterion, device,
                                        symmetrize_batch=False,
                                        use_amp=bool(args.amp))
@@ -399,9 +430,25 @@ def test_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
         metric_logger.update(loss=float(loss_value))
         # loss_value, loss_details = loss_tuple  # criterion returns two values
         # metric_logger.update(loss=float(loss_value), **loss_details)
-        if batch_num == 0 and (epoch == 0 or (epoch + 1) % 10 == 0) and log_writer is not None:
-            viz = get_viz(result["view1"], result["view2"], result["pred1"], result["pred2"])
-            log_writer.add_figure('test_samples', viz, epoch)
+        # if data_iter_step == 0 and (epoch == 0 or (epoch + 1) % 10 == 0) and log_writer is not None:
+        #     viz = get_viz(result["view1"], result["view2"], result["pred1"], result["pred2"])
+        #     log_writer.add_figure('test_samples', viz, epoch)
+        if log_writer is not None:
+            if data_iter_step == 0:
+                view1s = dict()
+                view2s = dict()
+                pred1s = dict()
+                pred2s = dict()
+            if data_iter_step < 16:
+                view1s = aggregate(view1s, result["view1"])
+                view2s = aggregate(view2s, result["view2"])
+                pred1s = aggregate(pred1s, result["pred1"])
+                pred2s = aggregate(pred2s, result["pred2"])
+            if data_iter_step == 16:
+                viz = get_viz(view1s, view2s, pred1s, pred2s)
+                log_writer.add_figure('test_samples', viz, epoch)
+                del view1s, view2s, pred1s, pred2s
+    
 
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
