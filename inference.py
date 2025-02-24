@@ -86,8 +86,8 @@ if __name__ == '__main__':
     image_dir = "/share/phoenix/nfs06/S9/kh775/dataset/megascenes_augmented_exhaustive"
     landmark = "Abbatiale_d'Ottmarsheim"
     img1_path = join(image_dir, landmark, "plans", "File:Ottmarsheim oben.jpg")
-    img2_path = join(image_dir, landmark, "images", "commons/Abbatiale_d'Ottmarsheim/0/pictures/Abbatiale Saint Pierre et Saint Paul.jpg")
-    # img2_path = join(image_dir, landmark, "images", "commons/Abbatiale_d'Ottmarsheim/0/pictures/Abbatiale d'Ottmarsheim romanisch.jpg")
+    # img2_path = join(image_dir, landmark, "images", "commons/Abbatiale_d'Ottmarsheim/0/pictures/Abbatiale Saint Pierre et Saint Paul.jpg")
+    img2_path = join(image_dir, landmark, "images", "commons/Abbatiale_d'Ottmarsheim/0/pictures/Abbatiale d'Ottmarsheim romanisch.jpg")
     npx_path = "/share/phoenix/nfs06/S9/kh775/code/wsfm/scripts/data/keypoint_localization/old/data_train/one_plan_2/coords/00000000.npy"
     # images = load_images([img2_path, img1_path], size=224)  # [img1: ['img': [1, 3, 224, 224], 'true_shape', 'idx', 'instance'], img2]
     
