@@ -34,12 +34,15 @@ class MegaScenesAugmented(BaseStereoViewDataset):
 
     def _get_bad_pairs(self):
         bad_pairs = set()
-        for pair in list(open(os.path.join(self.data_dir, "bad_pairs.txt")).readlines()):
-            plan_path, image_path = pair.replace("\n", "").split(" /")
-            plan_name = plan_path.split("/")[-1]
-            image_name = ("/"+image_path).replace(self.image_dir, "")
-            image_name = "/".join(image_name.split("/")[2:])
-            bad_pairs.add((plan_name, image_name))    
+        for file_name in ["corrupted_pairs.txt", "oob_pairs_test.txt", "oob_pairs_train.txt"]:
+            file_path = os.path.join(self.data_dir, file_name)
+            for pair in list(open(file_path).readlines()):
+                plan_path, image_path = pair.replace("\n", "").split(" /")
+                plan_name = plan_path.split("/")[-1]
+                image_name = ("/"+image_path).replace(self.image_dir, "")
+                image_name = "/".join(image_name.split("/")[2:])
+                bad_pairs.add((plan_name, image_name))    
+            print(f"Loaded {len(list(open(file_path).readlines()))} bad pairs from {file_name}")
         return bad_pairs
 
     def __len__(self):

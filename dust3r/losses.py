@@ -36,7 +36,7 @@ class LLoss (BaseCriterion):
     """
 
     def forward(self, a, b):
-        assert a.shape == b.shape and a.ndim >= 2 and 1 <= a.shape[-1] <= 3, f'Bad shape = {a.shape}'
+        assert a.shape == b.shape and a.ndim >= 2 and 1 <= a.shape[-1] <= 3, f'Bad shape = {a.shape}, {b.shape}'
         dist = self.distance(a, b)
         assert dist.ndim == a.ndim - 1  # one dimension less
         if self.reduction == 'none':
@@ -57,8 +57,19 @@ class L21Loss (LLoss):
     def distance(self, a, b):
         return torch.norm(a - b, dim=-1)  # normalized L2 distance
 
+class RMSELoss (BaseCriterion):
+    def forward(self, a, b):
+        print(f"RMSELoss: a: {a.size()}, b: {b.size()}")
+        assert a.shape == b.shape, f'Bad shape = {a.shape}, {b.shape}'  #(pred, gt)
+        dist = self.distance(a, b)
+        return dist
+        
+    def distance(self, a, b):
+        return torch.sqrt(((a - b) ** 2).mean())
+
 
 L21 = L21Loss()
+RMSE = RMSELoss()
 
 
 class Criterion (nn.Module):
@@ -139,10 +150,10 @@ class MultiLoss (nn.Module):
         return loss, details
     
 
-class PointLoss(MultiLoss):
-    def __init__(self, pixel_loss=nn.MSELoss()):
-        super().__init__()
-        self.pixel_loss = pixel_loss
+
+class PointLoss(Criterion, MultiLoss):
+    def __init__(self, criterion):
+        super().__init__(criterion)
 
     def get_name(self):
         return f'PointLoss({self.pixel_loss})'
@@ -158,8 +169,20 @@ class PointLoss(MultiLoss):
 
     def coordNorm(self, array, image_dim):
         return 2 * (array / (image_dim - 1)) - 1
+
+    def get_masks(self, gt2_xys, last_non_zero_indices, size):
+        print(f"coords: {gt2_xys.size()}")
+        batch_size = gt2_xys.size()[0]
+        masks = torch.zeros((batch_size, size, size), dtype=torch.bool)
+        for b, c in enumerate(gt2_xys):
+            print(f"1: {c.size()}")
+            c = c[:last_non_zero_indices[b]]
+            print(f"2: {c.size()}")
+            c = c.long()
+            masks[b, c[:, 1], c[:, 0]] = 1
+        return masks
     
-    def compute_loss(self, gt1, gt2, pred1, pred2, **kw):
+    def get_all_pts3d(self, gt1, gt2, pred1, pred2, **kw):
         # view1=view2: dict("img": Tensor(BCHW=(4,3,224,224)), "true_shape": Tensor(4,2), "instance": list(4), "plan_xy": Tensor(4,2), "image_xy": Tensor(4,2))
         # pred1: dict("pts3d": Tensor(BHWC=(4,224,224,3)), "conf": Tensor(BHW=(4,224,224)))
         # pred2: dict("pts3d_in_other_view": Tensor(BHWC), "conf": Tensor(BHW))
@@ -169,33 +192,37 @@ class PointLoss(MultiLoss):
         pred1s = torch.Tensor([]).cuda()
         pred2s = torch.Tensor([]).cuda()
         gts = torch.Tensor([]).cuda()
-        image_dim = gt1["img"].size()[2]
+        B, C, H, W = gt1["img"].size()
+        training_with_xy = False #training with xz if False
 
         for b, p in enumerate(pred2["pts3d_in_other_view"]):
             # pred: (HWC)
             img_xys = img_xys_with_pad[b][:last_non_zero_indices[b],:]
             plan_xys = plan_xys_with_pad[b][:last_non_zero_indices[b],:]
-            plan_xys_norm = self.coordNorm(plan_xys, image_dim)
+            plan_xys_norm = self.coordNorm(plan_xys, H)
 
             img_xs = img_xys[:, 0]
             img_ys = img_xys[:, 1] 
             img_xs = img_xs.long()
             img_ys = img_ys.long()
-            # pred2 = p[img_ys, img_xs, :2]
-            pred2 = torch.stack((p[img_ys, img_xs, 0], p[img_ys, img_xs, 2]), dim=1)
+            if training_with_xy:
+                pred2 = p[img_ys, img_xs, :2]
+            else:
+                pred2 = torch.stack((p[img_ys, img_xs, 0], p[img_ys, img_xs, 2]), dim=1)
             
             pred2s = torch.cat((pred2s, pred2.flatten()))
             gts = torch.cat((gts, plan_xys_norm.flatten()))
 
             assert pred2s.size() == gts.size()
-        pred2_loss = self.pixel_loss(pred2s, gts).float()
+        mask2 = self.get_masks(gt2["xys"], last_non_zero_indices, size=H)
+        # l2 = self.criterion(pred2s, gts).float()
 
         # "identity loss"
-        x = torch.arange(0, image_dim)  
-        y = torch.arange(0, image_dim)
+        x = torch.arange(0, H)  
+        y = torch.arange(0, H)
         xx, yy = torch.meshgrid(x, y)
         coordinates = torch.stack((xx.flatten(), yy.flatten()), dim=1).cuda()
-        coordinates_norm = self.coordNorm(coordinates, image_dim)
+        coordinates_norm = self.coordNorm(coordinates, H)
         coordinates_norms = torch.Tensor([]).cuda()
 
         for b, p in enumerate(pred1["pts3d"]):
@@ -203,18 +230,32 @@ class PointLoss(MultiLoss):
             plan_ys = coordinates[:, 1] 
             plan_xs = plan_xs.long()
             plan_ys = plan_ys.long()   
-            # pred1 = torch.stack((p[plan_xs, plan_ys, 0], p[plan_xs, plan_ys, 1]), dim=1)
-            pred1 = torch.stack((p[plan_xs, plan_ys, 0], p[plan_xs, plan_ys, 2]), dim=1)
+            if training_with_xy:
+                pred1 = torch.stack((p[plan_xs, plan_ys, 0], p[plan_xs, plan_ys, 1]), dim=1)
+            else:
+                pred1 = torch.stack((p[plan_xs, plan_ys, 0], p[plan_xs, plan_ys, 2]), dim=1)
 
             assert pred1.size() == coordinates_norm.size()
             
             pred1s = torch.cat((pred1s, pred1.flatten()))
             coordinates_norms = torch.cat((coordinates_norms, coordinates_norm.flatten()))
 
-        pred1_loss = self.pixel_loss(pred1s, coordinates_norms).float()
+        mask1 = torch.ones((B, H, W), dtype=torch.bool).cuda()
+        # l1 = self.criterion(pred1s, coordinates_norms).float()
 
-        return pred1_loss + pred2_loss
-    
+        return pred1s, coordinates_norms, mask1, pred2s, gts, mask2, {}
+
+    def compute_loss(self, gt1, gt2, pred1, pred2, **kw):
+        pred1s, coordinates_norms, mask1, pred2s, gts, mask2, monitoring= self.get_all_pts3d(gt1, gt2, pred1, pred2, **kw)
+        l2 = self.criterion(pred2s, gts).float()                # coordinate loss
+        print(f"l2:{l2}")
+        l1 = self.criterion(pred1s, coordinates_norms).float()  # identity loss
+        print(f"l1:{l1}")
+        self_name = type(self).__name__
+        details = {self_name + '_pts3d_1': float(l1.mean()), self_name + '_pts3d_2': float(l2.mean())}
+        print(f"details: {details}")
+        return ((l1, mask1), (l2, mask2)), (details | monitoring)
+
 
 class Regr3D (Criterion, MultiLoss):
     """ Ensure that all 3D points are correct.
@@ -238,7 +279,7 @@ class Regr3D (Criterion, MultiLoss):
         gt_pts1 = geotrf(in_camera1, gt1['pts3d'])  # B,H,W,3
         gt_pts2 = geotrf(in_camera1, gt2['pts3d'])  # B,H,W,3
 
-        valid1 = gt1['valid_mask'].clone()
+        valid1 = gt1['valid_mask'].clone() 
         valid2 = gt2['valid_mask'].clone()
 
         if dist_clip is not None:
@@ -303,6 +344,7 @@ class ConfLoss (MultiLoss):
             print('NO VALID POINTS in img2', force=True)
 
         # weight by confidence
+        print(msk1.type(), msk2.type())
         conf1, log_conf1 = self.get_conf_log(pred1['conf'][msk1])
         conf2, log_conf2 = self.get_conf_log(pred2['conf'][msk2])
         conf_loss1 = loss1 * conf1 - self.alpha * log_conf1

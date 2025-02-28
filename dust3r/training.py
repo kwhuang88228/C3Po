@@ -219,22 +219,22 @@ def train(args):
             log_writer=log_writer,
             args=args)
 
-        # # Test on multiple datasets
-        # new_best = False
-        # # if (epoch > 0 and args.eval_freq > 0 and epoch % args.eval_freq == 0):
-        # if (args.eval_freq > 0 and epoch % args.eval_freq == 0):
-        #     test_stats = {}
-        #     # test_name = args.test_dataset.split("/")[-1]
-        #     test_name = "test"
-        #     # for test_name, testset in data_loader_test.items():
-        #     stats = test_one_epoch(model, test_criterion, data_loader_test,
-        #                             device, epoch, log_writer=log_writer, args=args, prefix=test_name)
-        #     test_stats[test_name] = stats
+        # Test on multiple datasets
+        new_best = False
+        # if (epoch > 0 and args.eval_freq > 0 and epoch % args.eval_freq == 0):
+        if (args.eval_freq > 0 and epoch % args.eval_freq == 0):
+            test_stats = {}
+            # test_name = args.test_dataset.split("/")[-1]
+            test_name = "test"
+            # for test_name, testset in data_loader_test.items():
+            stats = test_one_epoch(model, test_criterion, data_loader_test,
+                                    device, epoch, log_writer=log_writer, args=args, prefix=test_name)
+            test_stats[test_name] = stats
 
-        #     # Save best of all
-        #     if stats['loss'] < best_so_far:
-        #         best_so_far = stats['loss']
-        #         new_best = True
+            # Save best of all
+            if stats['loss'] < best_so_far:
+                best_so_far = stats['loss']
+                new_best = True
 
         # Save more stuff
         write_log_stats(epoch, train_stats, test_stats)

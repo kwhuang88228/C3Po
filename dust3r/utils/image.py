@@ -105,6 +105,17 @@ def get_scaled_plan(im):
     scaled_plan = im.resize((round(im.size[0] * plan_scale), max_h))
     return scaled_plan
 
+def crop_outlier_xys(plan_xys, image_xys, size, pair):
+    mask = np.all((plan_xys >= 0) & (plan_xys <= size - 1), axis=1).astype(int)
+    plan_xys_cropped = plan_xys[mask == 1]
+    image_xys_cropped = image_xys[mask == 1]
+    assert plan_xys_cropped.shape[0] > 0 and image_xys_cropped.shape[0] > 0, "plan_xys all outside of floorplan dims"
+    # if not(plan_xys_cropped.shape[0] > 0 and image_xys_cropped.shape[0] > 0):
+    #     with open("/share/phoenix/nfs06/S9/kh775/code/wsfm/scripts/data/keypoint_localization/data/oob_pairs_test.txt", "a") as f:
+    #         f.write(f"{pair[0]} {pair[1]}\n")
+
+    return plan_xys_cropped, image_xys_cropped
+
 def load_images(folder_or_list, size, square_ok=False, verbose=True):
     """ open and convert all images in a list or folder to proper input format for DUSt3R
     """
@@ -197,6 +208,8 @@ def load_megascenes_augmented_images(pair, size, plan_xys, image_xys, square_ok=
 
     plan_updated, plan_xys_updated = resize_and_pad(scaled_plan, plan_xys, size, is_image=False)
     img_updated, image_xys_updated = resize_and_pad(img, image_xys, size, is_image=True)
+
+    plan_xys_updated, image_xys_updated = crop_outlier_xys(plan_xys_updated, image_xys_updated, size, pair)
 
     # plt.imshow(plan_resized_padded)
     # plt.savefig(os.path.join("/share/phoenix/nfs06/S9/kh775/code/dust3r/dust3r/utils/test/2", "resized_"+plan_path.split("/")[-1]))
