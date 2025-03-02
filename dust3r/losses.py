@@ -4,13 +4,15 @@
 # --------------------------------------------------------
 # Implementation of DUSt3R training losses
 # --------------------------------------------------------
+import math
 from copy import copy, deepcopy
+
 import torch
 import torch.nn as nn
-
-from dust3r.inference import get_pred_pts3d, find_opt_scaling
-from dust3r.utils.geometry import inv, geotrf, normalize_pointcloud
-from dust3r.utils.geometry import get_joint_pointcloud_depth, get_joint_pointcloud_center_scale
+from dust3r.inference import find_opt_scaling, get_pred_pts3d
+from dust3r.utils.geometry import (geotrf, get_joint_pointcloud_center_scale,
+                                   get_joint_pointcloud_depth, inv,
+                                   normalize_pointcloud)
 
 
 def Sum(*losses_and_masks):
@@ -59,7 +61,7 @@ class L21Loss (LLoss):
 
 class RMSELoss (BaseCriterion):
     def forward(self, a, b):
-        print(f"RMSELoss: a: {a.size()}, b: {b.size()}")
+        # print(f"RMSELoss: a: {a.size()}, b: {b.size()}")
         assert a.shape == b.shape, f'Bad shape = {a.shape}, {b.shape}'  #(pred, gt)
         dist = self.distance(a, b)
         return dist
@@ -171,13 +173,10 @@ class PointLoss(Criterion, MultiLoss):
         return 2 * (array / (image_dim - 1)) - 1
 
     def get_masks(self, gt2_xys, last_non_zero_indices, size):
-        print(f"coords: {gt2_xys.size()}")
         batch_size = gt2_xys.size()[0]
         masks = torch.zeros((batch_size, size, size), dtype=torch.bool)
         for b, c in enumerate(gt2_xys):
-            print(f"1: {c.size()}")
             c = c[:last_non_zero_indices[b]]
-            print(f"2: {c.size()}")
             c = c.long()
             masks[b, c[:, 1], c[:, 0]] = 1
         return masks
@@ -247,13 +246,10 @@ class PointLoss(Criterion, MultiLoss):
 
     def compute_loss(self, gt1, gt2, pred1, pred2, **kw):
         pred1s, coordinates_norms, mask1, pred2s, gts, mask2, monitoring= self.get_all_pts3d(gt1, gt2, pred1, pred2, **kw)
-        l2 = self.criterion(pred2s, gts).float()                # coordinate loss
-        print(f"l2:{l2}")
+        l2 = self.criterion(pred2s, gts).float() if pred2s.numel() > 0 and gts.numel() > 0 else torch.tensor(0, dtype=torch.float)   # coordinate loss
         l1 = self.criterion(pred1s, coordinates_norms).float()  # identity loss
-        print(f"l1:{l1}")
         self_name = type(self).__name__
         details = {self_name + '_pts3d_1': float(l1.mean()), self_name + '_pts3d_2': float(l2.mean())}
-        print(f"details: {details}")
         return ((l1, mask1), (l2, mask2)), (details | monitoring)
 
 
@@ -344,16 +340,14 @@ class ConfLoss (MultiLoss):
             print('NO VALID POINTS in img2', force=True)
 
         # weight by confidence
-        print(msk1.type(), msk2.type())
         conf1, log_conf1 = self.get_conf_log(pred1['conf'][msk1])
         conf2, log_conf2 = self.get_conf_log(pred2['conf'][msk2])
-        conf_loss1 = loss1 * conf1 - self.alpha * log_conf1
+        conf_loss1 = loss1 * conf1 #- self.alpha * log_conf1
         conf_loss2 = loss2 * conf2 - self.alpha * log_conf2
 
         # average + nan protection (in case of no valid pixels at all)
         conf_loss1 = conf_loss1.mean() if conf_loss1.numel() > 0 else 0
         conf_loss2 = conf_loss2.mean() if conf_loss2.numel() > 0 else 0
-
         return conf_loss1 + conf_loss2, dict(conf_loss_1=float(conf_loss1), conf_loss2=float(conf_loss2), **details)
 
 
