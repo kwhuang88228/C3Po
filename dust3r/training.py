@@ -134,7 +134,7 @@ def train(args):
     # training dataset and loader
     print('Building train dataset {:s}'.format(args.train_dataset))
     data_loader_train = build_dataset(args.train_dataset, args.batch_size, args.num_workers, test=False)
-    print('Building test dataset {:s}'.format(args.train_dataset))
+    print('Building test dataset {:s}'.format(args.test_dataset))
     data_loader_test = build_dataset(args.test_dataset, args.batch_size, args.num_workers, test=True)
 
     # model
@@ -183,7 +183,6 @@ def train(args):
             with open(os.path.join(args.output_dir, "log.txt"), mode="a", encoding="utf-8") as f:
                 f.write(json.dumps(log_stats) + "\n")
             log_stats = dict(epoch=epoch, **{f'test_{k}': v for k, v in test_stats.items()})
-
             with open(os.path.join(args.output_dir, "log.txt"), mode="a", encoding="utf-8") as f:
                 f.write(json.dumps(log_stats) + "\n")
 
@@ -223,17 +222,15 @@ def train(args):
         new_best = False
         # if (epoch > 0 and args.eval_freq > 0 and epoch % args.eval_freq == 0):
         if (args.eval_freq > 0 and epoch % args.eval_freq == 0):
-            test_stats = {}
             # test_name = args.test_dataset.split("/")[-1]
-            test_name = "test"
             # for test_name, testset in data_loader_test.items():
-            stats = test_one_epoch(model, test_criterion, data_loader_test,
-                                    device, epoch, log_writer=log_writer, args=args, prefix=test_name)
-            test_stats[test_name] = stats
+            test_stats = test_one_epoch(model, test_criterion, data_loader_test,
+                                    device, epoch, log_writer=log_writer, args=args, prefix="test")
+            print(f"test stats: {test_stats}")
 
             # Save best of all
-            if stats['loss'] < best_so_far:
-                best_so_far = stats['loss']
+            if test_stats['loss'] < best_so_far:
+                best_so_far = test_stats['loss']
                 new_best = True
 
         # Save more stuff
@@ -289,8 +286,7 @@ def is_main_process():
 
 def aggregate(dict1, dict2):
     if not dict1:
-        return dict2
-    assert dict1.keys() == dict2.keys()
+        return {k: v.cpu() for k, v in dict2.items() if k != "instance"}
     for key in dict1.keys():
         if key == "instance":
             continue
@@ -301,7 +297,7 @@ def aggregate(dict1, dict2):
                 dict2[key] = F.pad(dict2[key], (0, 0, 0, d1_xys_size - d2_xys_size))
             else:
                 dict1[key] = F.pad(dict1[key], (0, 0, 0, d2_xys_size - d1_xys_size))
-        dict1[key] = torch.cat((dict1[key], dict2[key]), dim=0)
+        dict1[key] = torch.cat((dict1[key].cpu(), dict2[key].cpu()), dim=0)
 
     return dict1
 
@@ -372,15 +368,15 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
             if log_writer is None:
                 continue
             """ We use epoch_1000x as the x-axis in tensorboard.
-            This calibrates different curves when batch size changes.
+            This calibrates different curves when bfatch size changes.
             """
             
             epoch_1000x = int(epoch_f * 1000)
             log_writer.add_scalar('train_loss', loss_value_reduce, epoch_1000x)
             log_writer.add_scalar('train_lr', lr, epoch_1000x)
             log_writer.add_scalar('train_iter', epoch_1000x, epoch_1000x)
-            # for name, val in loss_details.items():
-            #     log_writer.add_scalar('train_' + name, val, epoch_1000x)
+            for name, val in loss_details.items():
+                log_writer.add_scalar('train_' + name, val, epoch_1000x)
 
         # if data_iter_step == 0 and (epoch == 0 or (epoch + 1) % 10 == 0):
         if data_iter_step == 0:
@@ -388,12 +384,12 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
             view2s = dict()
             pred1s = dict()
             pred2s = dict()
-        if data_iter_step < 16:
+        if data_iter_step < 128:
             view1s = aggregate(view1s, result["view1"])
             view2s = aggregate(view2s, result["view2"])
             pred1s = aggregate(pred1s, result["pred1"])
             pred2s = aggregate(pred2s, result["pred2"])
-        if data_iter_step == 16:
+        if data_iter_step == 128:
             viz = get_viz(view1s, view2s, pred1s, pred2s)
             log_writer.add_figure('train_samples', viz, epoch)
             del view1s, view2s, pred1s, pred2s
@@ -426,10 +422,11 @@ def test_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
         result = loss_of_one_batch(batch, model, criterion, device,
                                        symmetrize_batch=False,
                                        use_amp=bool(args.amp))
-        loss_value, loss_details = result["loss"]  # criterion returns two values
+        _, loss_details = result["loss"]  # criterion returns two values
+        loss_value = sum(loss_details.values())
         metric_logger.update(loss=float(loss_value))
         # loss_value, loss_details = loss_tuple  # criterion returns two values
-        # metric_logger.update(loss=float(loss_value), **loss_details)
+        metric_logger.update(loss=float(loss_value), **loss_details)
         # if data_iter_step == 0 and (epoch == 0 or (epoch + 1) % 10 == 0) and log_writer is not None:
         #     viz = get_viz(result["view1"], result["view2"], result["pred1"], result["pred2"])
         #     log_writer.add_figure('test_samples', viz, epoch)
@@ -439,12 +436,12 @@ def test_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                 view2s = dict()
                 pred1s = dict()
                 pred2s = dict()
-            if data_iter_step < 16:
+            if data_iter_step < 128:
                 view1s = aggregate(view1s, result["view1"])
                 view2s = aggregate(view2s, result["view2"])
                 pred1s = aggregate(pred1s, result["pred1"])
                 pred2s = aggregate(pred2s, result["pred2"])
-            if data_iter_step == 16:
+            if data_iter_step == 128:
                 viz = get_viz(view1s, view2s, pred1s, pred2s)
                 log_writer.add_figure('test_samples', viz, epoch)
                 del view1s, view2s, pred1s, pred2s
@@ -458,7 +455,6 @@ def test_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
 
     if log_writer is not None:
         for name, val in results.items():
-            print(prefix, name, val, 1000*epoch)
             log_writer.add_scalar(prefix + '_' + name, val, 1000*epoch)
 
     return results
