@@ -348,7 +348,7 @@ class ConfLoss (MultiLoss):
         # average + nan protection (in case of no valid pixels at all)
         conf_loss1 = conf_loss1.mean() if conf_loss1.numel() > 0 else 0
         conf_loss2 = conf_loss2.mean() if conf_loss2.numel() > 0 else 0
-        return conf_loss1 + conf_loss2, dict(conf_loss_1=float(conf_loss1), conf_loss2=float(conf_loss2), **details)
+        return conf_loss1 + conf_loss2, dict(conf_loss1=float(conf_loss1), conf_loss2=float(conf_loss2), **details)
 
 
 class Regr3D_ShiftInv (Regr3D):

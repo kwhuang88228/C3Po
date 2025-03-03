@@ -384,12 +384,12 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
             view2s = dict()
             pred1s = dict()
             pred2s = dict()
-        if data_iter_step < 128:
+        if data_iter_step < 32:
             view1s = aggregate(view1s, result["view1"])
             view2s = aggregate(view2s, result["view2"])
             pred1s = aggregate(pred1s, result["pred1"])
             pred2s = aggregate(pred2s, result["pred2"])
-        if data_iter_step == 128:
+        if data_iter_step == 32:
             viz = get_viz(view1s, view2s, pred1s, pred2s)
             log_writer.add_figure('train_samples', viz, epoch)
             del view1s, view2s, pred1s, pred2s
@@ -422,7 +422,7 @@ def test_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
         result = loss_of_one_batch(batch, model, criterion, device,
                                        symmetrize_batch=False,
                                        use_amp=bool(args.amp))
-        _, loss_details = result["loss"]  # criterion returns two values
+        loss, loss_details = result["loss"]  # criterion returns two values
         loss_value = sum(loss_details.values())
         metric_logger.update(loss=float(loss_value))
         # loss_value, loss_details = loss_tuple  # criterion returns two values
@@ -432,18 +432,22 @@ def test_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
         #     log_writer.add_figure('test_samples', viz, epoch)
         if log_writer is not None:
             if data_iter_step == 0:
+                losses = []
                 view1s = dict()
                 view2s = dict()
                 pred1s = dict()
                 pred2s = dict()
-            if data_iter_step < 128:
+            if data_iter_step <= 3:
+                losses.extend([loss[0][0].item(), loss[1][0].item()])
                 view1s = aggregate(view1s, result["view1"])
                 view2s = aggregate(view2s, result["view2"])
                 pred1s = aggregate(pred1s, result["pred1"])
                 pred2s = aggregate(pred2s, result["pred2"])
-            if data_iter_step == 128:
+            if data_iter_step == 3:
                 viz = get_viz(view1s, view2s, pred1s, pred2s)
+                sorted_viz = get_viz(view1s, view2s, pred1s, pred2s, losses=losses)
                 log_writer.add_figure('test_samples', viz, epoch)
+                log_writer.add_figure('test_samples_sorted', sorted_viz, epoch)
                 del view1s, view2s, pred1s, pred2s
     
 
