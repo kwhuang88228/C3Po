@@ -10,6 +10,14 @@ from dust3r.utils.device import to_cpu, collate_with_cat
 from dust3r.utils.misc import invalid_to_nans
 from dust3r.utils.geometry import depthmap_to_pts3d, geotrf
 
+import numpy as np
+from dust3r.datasets import get_data_loader
+from dust3r.utils.image import load_megascenes_augmented_images
+from dust3r.utils.viz import get_viz
+import PIL
+import matplotlib
+import os
+import io
 
 def _interleave_imgs(img1, img2):
     res = {}
@@ -56,24 +64,100 @@ def loss_of_one_batch(batch, model, criterion, device, symmetrize_batch=False, u
     return result[ret] if ret else result
 
 
+# @torch.no_grad()
+# def inference(pairs, model, device, batch_size=8, verbose=True):
+#     if verbose:
+#         print(f'>> Inference with model on {len(pairs)} image pairs')
+#     result = []
+
+#     # first, check if all images have the same size
+#     multiple_shapes = not (check_if_same_size(pairs))
+#     if multiple_shapes:  # force bs=1
+#         batch_size = 1
+
+#     for i in tqdm.trange(0, len(pairs), batch_size, disable=not verbose):
+#         res = loss_of_one_batch(collate_with_cat(pairs[i:i + batch_size]), model, None, device)
+#         result.append(to_cpu(res))
+
+#     result = collate_with_cat(result, lists=multiple_shapes)
+
+#     return result
+
 @torch.no_grad()
-def inference(pairs, model, device, batch_size=8, verbose=True):
-    if verbose:
-        print(f'>> Inference with model on {len(pairs)} image pairs')
-    result = []
+def inference(model, test_criterion, device, epoch, output_dir, log_writer):
+    def build_dataset(dataset, batch_size, num_workers, test=False):
+        split = ['Train', 'Test'][test]
+        print(f'Building {split} Data loader for dataset')
+        loader = get_data_loader(
+            dataset,
+            batch_size=batch_size,
+            num_workers=num_workers,
+            pin_mem=True,
+            shuffle=not (test),
+            drop_last=not (test)
+        )
 
-    # first, check if all images have the same size
-    multiple_shapes = not (check_if_same_size(pairs))
-    if multiple_shapes:  # force bs=1
-        batch_size = 1
+        print(f"{split} dataset length: {len(loader)}")
+        return loader
 
-    for i in tqdm.trange(0, len(pairs), batch_size, disable=not verbose):
-        res = loss_of_one_batch(collate_with_cat(pairs[i:i + batch_size]), model, None, device)
-        result.append(to_cpu(res))
+    def make_batches(plan_path, img_path, xys_path, batch_size):
+        plan_xys, image_xys = np.load(xys_path)
+        pair = load_megascenes_augmented_images((plan_path, img_path), size=512, plan_xys=plan_xys, image_xys=image_xys)  
+        batches = build_dataset([pair], batch_size, num_workers=4, test=True)
+        return batches
 
-    result = collate_with_cat(result, lists=multiple_shapes)
+    def get_inference_viz(batches, model, criterion, device):
+        viz_list = []
+        for batch in batches:
+            output = loss_of_one_batch(batch, model=model, criterion=criterion, device=device, symmetrize_batch=False, use_amp=False, ret=None)
+            loss, _ = output["loss"]
+            viz = get_viz(output["view1"], output["view2"], output["pred1"], output["pred2"], [loss.item()])
+            viz_list.append(viz)
+        return viz_list
+    pairs_path = "/share/phoenix/nfs06/S9/kh775/code/wsfm/scripts/data/keypoint_localization/data/intuitive_pairs.txt"
+    pairs_info = []
+    with open(pairs_path, 'r') as f:
+        for line in f.readlines():
+            line = line.strip().split(" /share")
+            pairs_info.append((line[0], "/share"+line[1], "/share"+line[2]))
 
-    return result
+    npx_dir = "/share/phoenix/nfs06/S9/kh775/code/wsfm/scripts/data/keypoint_localization/data/data_test/coords"
+    fig_list = []
+    for idx, (npx_num, plan_path, image_path) in enumerate(pairs_info):
+        npx_path = os.path.join(npx_dir, f"{int(npx_num):06}.npy")
+        batches = make_batches(plan_path, image_path, npx_path, batch_size=1)
+        viz = get_inference_viz(batches, model, test_criterion, device)
+        fig_list.append(viz[0])
+
+    pil_images = []
+    for fig in fig_list:
+        buf = io.BytesIO()
+        fig.savefig(buf, format='png', dpi=100, bbox_inches='tight')
+        buf.seek(0)
+        pil_images.append(PIL.Image.open(buf))
+
+    # Calculate dimensions
+    widths, heights = zip(*(img.size for img in pil_images))
+    max_width = max(widths)
+    total_height = sum(heights)
+
+    # Create a new image
+    stacked_image = PIL.Image.new('RGBA', (max_width, total_height))
+
+    # Paste images
+    y_offset = 0
+    for img in pil_images:
+        stacked_image.paste(img, (0, y_offset))
+        y_offset += img.height
+
+    # Save the result
+    os.makedirs(os.path.join(output_dir, "intuitive_pairs"), exist_ok=True)
+    output_path = os.path.join(output_dir, "intuitive_pairs", f"intuitive_pairs_{epoch}.png")
+    stacked_image.save(output_path)
+
+    img_tensor = torch.tensor(np.array(stacked_image)).permute(2, 0, 1)
+    if log_writer is not None:
+        log_writer.add_image('intuitive_samples', img_tensor, epoch)
 
 
 def check_if_same_size(pairs):

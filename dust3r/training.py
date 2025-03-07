@@ -32,7 +32,7 @@ torch.backends.cuda.matmul.allow_tf32 = True  # for gpu >= Ampere and pytorch >=
 from dust3r.model import AsymmetricCroCo3DStereo, inf  # noqa: F401, needed when loading the model
 from dust3r.datasets import get_data_loader  # noqa
 from dust3r.losses import *  # noqa: F401, needed when loading the model
-from dust3r.inference import loss_of_one_batch  # noqa
+from dust3r.inference import loss_of_one_batch, inference  # noqa
 from dust3r.utils.viz import get_viz
 
 import dust3r.utils.path_to_croco  # noqa: F401
@@ -68,7 +68,9 @@ def get_args_parser():
 
     # training
     parser.add_argument('--seed', default=0, type=int, help="Random seed")
-    parser.add_argument('--batch_size', default=64, type=int,
+    parser.add_argument('--train_batch_size', default=64, type=int,
+                        help="Batch size per GPU (effective batch size is batch_size * accum_iter * # gpus")
+    parser.add_argument('--test_batch_size', default=64, type=int,
                         help="Batch size per GPU (effective batch size is batch_size * accum_iter * # gpus")
     parser.add_argument('--accum_iter', default=1, type=int,
                         help="Accumulate gradient iterations (for increasing the effective batch size under memory constraints)")
@@ -133,9 +135,9 @@ def train(args):
 
     # training dataset and loader
     print('Building train dataset {:s}'.format(args.train_dataset))
-    data_loader_train = build_dataset(args.train_dataset, args.batch_size, args.num_workers, test=False)
+    data_loader_train = build_dataset(args.train_dataset, args.train_batch_size, args.num_workers, test=False)
     print('Building test dataset {:s}'.format(args.test_dataset))
-    data_loader_test = build_dataset(args.test_dataset, args.batch_size, args.num_workers, test=True)
+    data_loader_test = build_dataset(args.test_dataset, args.test_batch_size, args.num_workers, test=True)
 
     # model
     # print('Loading model: {:s}'.format(args.model))
@@ -155,7 +157,7 @@ def train(args):
         print(model.load_state_dict(ckpt['model'], strict=False))
         del ckpt  # in case it occupies memory
 
-    eff_batch_size = args.batch_size * args.accum_iter * misc.get_world_size()
+    eff_batch_size = args.train_batch_size * args.accum_iter * misc.get_world_size()
     if args.lr is None:  # only base_lr is specified
         args.lr = args.blr * eff_batch_size / 256
     print("base lr: %.2e" % (args.lr * 256 / eff_batch_size))
@@ -235,6 +237,9 @@ def train(args):
 
         # Save more stuff
         write_log_stats(epoch, train_stats, test_stats)
+
+        # Inference on the "intuitive" pairs
+        inference(model, test_criterion, device, epoch, args.output_dir, log_writer)
 
         if epoch > args.start_epoch:
             if args.keep_freq and epoch % args.keep_freq == 0:
@@ -380,16 +385,17 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
 
         # if data_iter_step == 0 and (epoch == 0 or (epoch + 1) % 10 == 0):
         if data_iter_step == 0:
+            # losses = []
             view1s = dict()
             view2s = dict()
             pred1s = dict()
             pred2s = dict()
-        if data_iter_step < 32:
+        if data_iter_step <= 127:
             view1s = aggregate(view1s, result["view1"])
             view2s = aggregate(view2s, result["view2"])
             pred1s = aggregate(pred1s, result["pred1"])
             pred2s = aggregate(pred2s, result["pred2"])
-        if data_iter_step == 32:
+        if data_iter_step == 127:
             viz = get_viz(view1s, view2s, pred1s, pred2s)
             log_writer.add_figure('train_samples', viz, epoch)
             del view1s, view2s, pred1s, pred2s
@@ -423,6 +429,8 @@ def test_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                                        symmetrize_batch=False,
                                        use_amp=bool(args.amp))
         loss, loss_details = result["loss"]  # criterion returns two values
+        # print(f"test - loss: {loss}")
+        # print(f"test - loss_detail: {loss_details}")
         loss_value = sum(loss_details.values())
         metric_logger.update(loss=float(loss_value))
         # loss_value, loss_details = loss_tuple  # criterion returns two values
@@ -437,13 +445,13 @@ def test_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                 view2s = dict()
                 pred1s = dict()
                 pred2s = dict()
-            if data_iter_step <= 3:
-                losses.extend([loss[0][0].item(), loss[1][0].item()])
+            if data_iter_step <= 127:
+                losses.append(loss_value)
                 view1s = aggregate(view1s, result["view1"])
                 view2s = aggregate(view2s, result["view2"])
                 pred1s = aggregate(pred1s, result["pred1"])
                 pred2s = aggregate(pred2s, result["pred2"])
-            if data_iter_step == 3:
+            if data_iter_step == 127:
                 viz = get_viz(view1s, view2s, pred1s, pred2s)
                 sorted_viz = get_viz(view1s, view2s, pred1s, pred2s, losses=losses)
                 log_writer.add_figure('test_samples', viz, epoch)
