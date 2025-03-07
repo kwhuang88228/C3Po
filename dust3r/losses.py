@@ -57,21 +57,11 @@ class L21Loss (LLoss):
     """ Euclidean distance between 3d points  """
 
     def distance(self, a, b):
-        return torch.norm(a - b, dim=-1)  # normalized L2 distance
-
-class RMSELoss (BaseCriterion):
-    def forward(self, a, b):
-        # print(f"RMSELoss: a: {a.size()}, b: {b.size()}")
-        assert a.shape == b.shape, f'Bad shape = {a.shape}, {b.shape}'  #(pred, gt)
-        dist = self.distance(a, b)
+        dist = torch.norm(a - b, dim=-1)  # normalized L2 distance
         return dist
-        
-    def distance(self, a, b):
-        return torch.sqrt(((a - b) ** 2).mean())
 
 
 L21 = L21Loss()
-RMSE = RMSELoss()
 
 
 class Criterion (nn.Module):
@@ -152,6 +142,17 @@ class MultiLoss (nn.Module):
         return loss, details
     
 
+def CoordNorm(array, image_dim):
+    return torch.tensor(2 * (array / (image_dim - 1)) - 1, dtype=torch.float)
+
+def get_last_nonzero_indices(xys):
+        last_nonzero_indices = []
+        for batch in xys:
+            for idx in range(len(batch) - 1, -1, -1):
+                if not torch.all(batch[idx] == torch.tensor([0, 0]).cuda()):
+                    last_nonzero_indices.append(idx+1)
+                    break
+        return last_nonzero_indices
 
 class PointLoss(Criterion, MultiLoss):
     def __init__(self, criterion):
@@ -159,98 +160,69 @@ class PointLoss(Criterion, MultiLoss):
 
     def get_name(self):
         return f'PointLoss({self.pixel_loss})'
-    
-    def get_last_non_zero_indices(self, xys):
-        last_non_zero_indices = []
-        for batch in xys:
-            for idx in range(len(batch) - 1, -1, -1):
-                if not torch.all(batch[idx] == torch.tensor([0, 0]).cuda()):
-                    last_non_zero_indices.append(idx)
-                    break
-        return last_non_zero_indices
 
-    def coordNorm(self, array, image_dim):
-        return 2 * (array / (image_dim - 1)) - 1
+    def get_gt_pts2_and_mask2(self, plan_xys_with_pad, img_xys_with_pad, last_nonzero_indices, size):
+        B, H, W, _ = size
+        gt_pts2 = torch.zeros((B, H, W, 2), dtype=torch.float).cuda()
+        mask2 = torch.zeros((B, H, W), dtype=torch.bool).cuda()
+        
+        for b, (plan_xys, img_xys) in enumerate(zip(plan_xys_with_pad, img_xys_with_pad)):
+            img_xys = img_xys[:last_nonzero_indices[b]]
+            plan_xys = plan_xys[:last_nonzero_indices[b]]
+            img_xys = img_xys.long()
+            plan_xys = plan_xys.long()
+            gt_pts2[b, img_xys[:, 1], img_xys[:, 0]] = CoordNorm(plan_xys, H)
+            mask2[b, img_xys[:, 1], img_xys[:, 0]] = 1
 
-    def get_masks(self, gt2_xys, last_non_zero_indices, size):
-        batch_size = gt2_xys.size()[0]
-        masks = torch.zeros((batch_size, size, size), dtype=torch.bool)
-        for b, c in enumerate(gt2_xys):
-            c = c[:last_non_zero_indices[b]]
-            c = c.long()
-            masks[b, c[:, 1], c[:, 0]] = 1
-        return masks
+        return gt_pts2, mask2
     
     def get_all_pts3d(self, gt1, gt2, pred1, pred2, **kw):
-        # view1=view2: dict("img": Tensor(BCHW=(4,3,224,224)), "true_shape": Tensor(4,2), "instance": list(4), "plan_xy": Tensor(4,2), "image_xy": Tensor(4,2))
-        # pred1: dict("pts3d": Tensor(BHWC=(4,224,224,3)), "conf": Tensor(BHW=(4,224,224)))
-        # pred2: dict("pts3d_in_other_view": Tensor(BHWC), "conf": Tensor(BHW))
-        plan_xys_with_pad = gt1["xys"]            #(B,max_xy_len,2)
-        img_xys_with_pad = gt2["xys"]            #(B,max_xy_len,2)
-        last_non_zero_indices = self.get_last_non_zero_indices(img_xys_with_pad)
-        pred1s = torch.Tensor([]).cuda()
-        pred2s = torch.Tensor([]).cuda()
-        gts = torch.Tensor([]).cuda()
+        # # view1=view2: dict("img": Tensor(BCHW=(4,3,224,224)), "true_shape": Tensor(4,2), "instance": list(4), "plan_xy": Tensor(4,2), "image_xy": Tensor(4,2))
+        # # pred1: dict("pts3d": Tensor(BHWC=(4,224,224,3)), "conf": Tensor(BHW=(4,224,224)))
+        # # pred2: dict("pts3d_in_other_view": Tensor(BHWC), "conf": Tensor(BHW))
+        
+        # identity loss
         B, C, H, W = gt1["img"].size()
-        training_with_xy = False #training with xz if False
-
-        for b, p in enumerate(pred2["pts3d_in_other_view"]):
-            # pred: (HWC)
-            img_xys = img_xys_with_pad[b][:last_non_zero_indices[b],:]
-            plan_xys = plan_xys_with_pad[b][:last_non_zero_indices[b],:]
-            plan_xys_norm = self.coordNorm(plan_xys, H)
-
-            img_xs = img_xys[:, 0]
-            img_ys = img_xys[:, 1] 
-            img_xs = img_xs.long()
-            img_ys = img_ys.long()
-            if training_with_xy:
-                pred2 = p[img_ys, img_xs, :2]
-            else:
-                pred2 = torch.stack((p[img_ys, img_xs, 0], p[img_ys, img_xs, 2]), dim=1)
-            
-            pred2s = torch.cat((pred2s, pred2.flatten()))
-            gts = torch.cat((gts, plan_xys_norm.flatten()))
-
-            assert pred2s.size() == gts.size()
-        mask2 = self.get_masks(gt2["xys"], last_non_zero_indices, size=H)
-        # l2 = self.criterion(pred2s, gts).float()
-
-        # "identity loss"
-        x = torch.arange(0, H)  
-        y = torch.arange(0, H)
-        xx, yy = torch.meshgrid(x, y)
-        coordinates = torch.stack((xx.flatten(), yy.flatten()), dim=1).cuda()
-        coordinates_norm = self.coordNorm(coordinates, H)
-        coordinates_norms = torch.Tensor([]).cuda()
-
-        for b, p in enumerate(pred1["pts3d"]):
-            plan_xs = coordinates[:, 0]
-            plan_ys = coordinates[:, 1] 
-            plan_xs = plan_xs.long()
-            plan_ys = plan_ys.long()   
-            if training_with_xy:
-                pred1 = torch.stack((p[plan_xs, plan_ys, 0], p[plan_xs, plan_ys, 1]), dim=1)
-            else:
-                pred1 = torch.stack((p[plan_xs, plan_ys, 0], p[plan_xs, plan_ys, 2]), dim=1)
-
-            assert pred1.size() == coordinates_norm.size()
-            
-            pred1s = torch.cat((pred1s, pred1.flatten()))
-            coordinates_norms = torch.cat((coordinates_norms, coordinates_norm.flatten()))
+        ys = torch.arange(H)
+        xs = torch.arange(W)
+        grid_y, grid_x = torch.meshgrid(ys, xs, indexing='ij')
+        coords = torch.stack([grid_y, grid_x], dim=-1)  # (H, W, 2)
+        coords = coords.unsqueeze(0).expand(B, -1, -1, -1) # (B, H, W, 2)
+        gt_pts1 = CoordNorm(coords, H).cuda()
+        
+        pred1_pts3d = pred1["pts3d"]  # (B, H, W, 3)
+        pred1_pts3d_x = pred1_pts3d[..., 0:1]  # (B, H, W, 1)
+        pred1_pts3d_z = pred1_pts3d[..., 2:3]  # (B, H, W, 1)
+        pred_pts1 = torch.cat([pred1_pts3d_x, pred1_pts3d_z], dim=-1) # (B, H, W, 2)
 
         mask1 = torch.ones((B, H, W), dtype=torch.bool).cuda()
-        # l1 = self.criterion(pred1s, coordinates_norms).float()
 
-        return pred1s, coordinates_norms, mask1, pred2s, gts, mask2, {}
+        # pixel loss
+        pred2_pts3d = pred2["pts3d_in_other_view"]  # (B, H, W, 3)
+        pred2_pts3d_x = pred2_pts3d[..., 0:1]  # (B, H, W, 1)
+        pred2_pts3d_z = pred2_pts3d[..., 2:3]  # (B, H, W, 1)
+        pred_pts2 = torch.cat([pred2_pts3d_x, pred2_pts3d_z], dim=-1) # (B, H, W, 2)
+
+        plan_xys_with_pad = gt1["xys"]            # (B, max_xy_len, 2)
+        img_xys_with_pad = gt2["xys"]             # (B, max_xy_len, 2)
+        last_nonzero_indices = get_last_nonzero_indices(img_xys_with_pad)   # list(B)
+        gt_pts2, mask2 = self.get_gt_pts2_and_mask2(plan_xys_with_pad, img_xys_with_pad, last_nonzero_indices, pred_pts2.size())
+
+        return gt_pts1, gt_pts2, pred_pts1, pred_pts2, mask1, mask2, {}
 
     def compute_loss(self, gt1, gt2, pred1, pred2, **kw):
-        pred1s, coordinates_norms, mask1, pred2s, gts, mask2, monitoring= self.get_all_pts3d(gt1, gt2, pred1, pred2, **kw)
-        l2 = self.criterion(pred2s, gts).float() if pred2s.numel() > 0 and gts.numel() > 0 else torch.tensor(0, dtype=torch.float)   # coordinate loss
-        l1 = self.criterion(pred1s, coordinates_norms).float()  # identity loss
+        gt_pts1, gt_pts2, pred_pts1, pred_pts2, mask1, mask2, monitoring = \
+            self.get_all_pts3d(gt1, gt2, pred1, pred2, **kw)
+        # pred_pts1: (B, H, W, 2), gt_pts1: (B, H, W, 2), mask1: (B, H, W)
+        # pred_pts2: (B, H, W, 2), gt_pts2: (B, H, W, 2), mask2: (B, H, W)
+        # pred_pts1[mask1]) = gt_pts1[mask1] = (HW, 2)
+        # pred_pts2[mask2]) = gt_pts2[mask2] = (N, 2)
+        l1 = self.criterion(pred_pts1[mask1], gt_pts1[mask1])  # l1: (2HW)
+        l2 = self.criterion(pred_pts2[mask2], gt_pts2[mask2])  # l2: (M+N)
         self_name = type(self).__name__
         details = {self_name + '_pts3d_1': float(l1.mean()), self_name + '_pts3d_2': float(l2.mean())}
-        return ((l1, mask1), (l2, mask2)), (details | monitoring)
+        return Sum((l1, mask1), (l2, mask2)), (details | monitoring)
+        
 
 
 class Regr3D (Criterion, MultiLoss):
@@ -340,8 +312,8 @@ class ConfLoss (MultiLoss):
             print('NO VALID POINTS in img2', force=True)
 
         # weight by confidence
-        conf1, log_conf1 = self.get_conf_log(pred1['conf'][msk1])
-        conf2, log_conf2 = self.get_conf_log(pred2['conf'][msk2])
+        conf1, log_conf1 = self.get_conf_log(pred1['conf'][msk1])  # (2HW), (2HW)
+        conf2, log_conf2 = self.get_conf_log(pred2['conf'][msk2])  # (M+N), (M+N)
         conf_loss1 = loss1 * conf1 #- self.alpha * log_conf1
         conf_loss2 = loss2 * conf2 - self.alpha * log_conf2
 
