@@ -18,6 +18,8 @@ import PIL
 import matplotlib
 import os
 import io
+from io import BytesIO
+import base64
 
 def _interleave_imgs(img1, img2):
     res = {}
@@ -83,23 +85,23 @@ def loss_of_one_batch(batch, model, criterion, device, symmetrize_batch=False, u
 
 #     return result
 
+def build_dataset(dataset, batch_size, num_workers, test=False):
+    split = ['Train', 'Test'][test]
+    print(f'Building {split} Data loader for dataset')
+    loader = get_data_loader(
+        dataset,
+        batch_size=batch_size,
+        num_workers=num_workers,
+        pin_mem=True,
+        shuffle=not (test),
+        drop_last=not (test)
+    )
+
+    print(f"{split} dataset length: {len(loader)}")
+    return loader
+
 @torch.no_grad()
 def inference(model, test_criterion, device, epoch, output_dir, log_writer):
-    def build_dataset(dataset, batch_size, num_workers, test=False):
-        split = ['Train', 'Test'][test]
-        print(f'Building {split} Data loader for dataset')
-        loader = get_data_loader(
-            dataset,
-            batch_size=batch_size,
-            num_workers=num_workers,
-            pin_mem=True,
-            shuffle=not (test),
-            drop_last=not (test)
-        )
-
-        print(f"{split} dataset length: {len(loader)}")
-        return loader
-
     def make_batches(plan_path, img_path, xys_path, batch_size):
         plan_xys, image_xys = np.load(xys_path)
         pair = load_megascenes_augmented_images((plan_path, img_path), size=512, plan_xys=plan_xys, image_xys=image_xys)  
@@ -114,6 +116,7 @@ def inference(model, test_criterion, device, epoch, output_dir, log_writer):
             viz = get_viz(output["view1"], output["view2"], output["pred1"], output["pred2"], [loss.item()])
             viz_list.append(viz)
         return viz_list
+    
     pairs_path = "/share/phoenix/nfs06/S9/kh775/code/wsfm/scripts/data/keypoint_localization/data/intuitive_pairs.txt"
     pairs_info = []
     with open(pairs_path, 'r') as f:
@@ -142,7 +145,7 @@ def inference(model, test_criterion, device, epoch, output_dir, log_writer):
     total_height = sum(heights)
 
     # Create a new image
-    stacked_image = PIL.Image.new('RGBA', (max_width, total_height))
+    stacked_image = PIL.Image.new('RGBA', (max_width, int(total_height * 1.5)))
 
     # Paste images
     y_offset = 0
@@ -152,12 +155,13 @@ def inference(model, test_criterion, device, epoch, output_dir, log_writer):
 
     # Save the result
     os.makedirs(os.path.join(output_dir, "intuitive_pairs"), exist_ok=True)
-    output_path = os.path.join(output_dir, "intuitive_pairs", f"intuitive_pairs_{epoch}.png")
-    stacked_image.save(output_path)
-
-    img_tensor = torch.tensor(np.array(stacked_image)).permute(2, 0, 1)
-    if log_writer is not None:
-        log_writer.add_image('intuitive_samples', img_tensor, epoch)
+    
+    buffer = BytesIO()
+    stacked_image.save(buffer, format="PNG")
+    img_str = base64.b64encode(buffer.getvalue()).decode('utf-8')
+    output_html_path = os.path.join(output_dir, "intuitive_pairs", f"intuitive_pairs_epoch_{epoch}.html")
+    with open(output_html_path, 'w') as f:
+        f.write(f'<img src="data:image/png;base64,{img_str}">')
 
 
 def check_if_same_size(pairs):

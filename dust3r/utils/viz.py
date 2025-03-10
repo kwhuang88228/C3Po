@@ -1,18 +1,23 @@
-import io
+import base64
+import os
+from io import BytesIO
+
 import matplotlib.pyplot as plt
-import PIL.Image
-from torchvision.transforms import ToTensor
 import numpy as np
 import torch
+from torchvision.transforms import ToTensor
 
 
-def reverse_ImgNorm(np_array):
-    np_array = np_array * 0.5 + 0.5
-    np_array *= 255.0
-    np_array = np_array.clip(0, 255).astype(np.uint8)
-    return np_array
+def ReverseImgNorm(x):
+    x = x * 0.5 + 0.5
+    x *= 255.0
+    if isinstance(x, np.ndarray):
+        x = x.clip(0, 255).astype(np.uint8)
+    else:
+        x = torch.clamp(x, 0, 255).to(torch.uint8)
+    return x
 
-def reverse_CoordNorm(np_array, size):
+def ReverseCoordNorm(np_array, size):
     return (np_array + 1) * (size - 1) / 2
 
 
@@ -49,7 +54,7 @@ def get_viz(view1, view2, pred1, pred2, losses=None):
 
         for b in bs:
             if B == 1:
-                view1_img_scaled = reverse_ImgNorm(view1_img[b])
+                view1_img_scaled = ReverseImgNorm(view1_img[b])
                 axes[0].imshow(view1_img_scaled)
                 gt = get_nonzero_xys(view1["xys"][b].cpu()).numpy()
                 axes[0].scatter(gt[:,0], gt[:,1], s=5)
@@ -64,7 +69,7 @@ def get_viz(view1, view2, pred1, pred2, losses=None):
                     pred = pred[y_coords, x_coords, :2]
                 else:
                     pred = np.stack((pred[y_coords, x_coords, 0], pred[y_coords, x_coords, 2]), axis=1)
-                pred = reverse_CoordNorm(pred, image_size)
+                pred = ReverseCoordNorm(pred, image_size)
                 rgbs = get_rgbs(pred, image_size)
                 axes[1].scatter(pred[:,0], pred[:,1], s=5, c=rgbs)
                 axes[1].set_title(titles[1])   
@@ -73,7 +78,7 @@ def get_viz(view1, view2, pred1, pred2, losses=None):
                 axes[2].imshow(conf2)   
                 axes[2].set_title(titles[2]) 
 
-                view2_img_scaled = reverse_ImgNorm(view2_img[b])
+                view2_img_scaled = ReverseImgNorm(view2_img[b])
                 axes[3].imshow(view2_img_scaled)   
                 image_xys = get_nonzero_xys(view2["xys"][b].cpu()).numpy()   
                 axes[3].scatter(image_xys[:,0], image_xys[:,1], s=1, c=rgbs) 
@@ -85,7 +90,7 @@ def get_viz(view1, view2, pred1, pred2, losses=None):
                 if losses is not None:
                     axes[0].set_ylabel(f"loss: {losses[b]:.6f}")
             else:
-                view1_img_scaled = reverse_ImgNorm(view1_img[b])
+                view1_img_scaled = ReverseImgNorm(view1_img[b])
                 axes[idx, 0].imshow(view1_img_scaled)
                 gt = get_nonzero_xys(view1["xys"][b].cpu()).numpy()
                 axes[idx, 0].scatter(gt[:,0], gt[:,1], s=5)
@@ -100,7 +105,7 @@ def get_viz(view1, view2, pred1, pred2, losses=None):
                     pred = pred[y_coords, x_coords, :2]
                 else:
                     pred = np.stack((pred[y_coords, x_coords, 0], pred[y_coords, x_coords, 2]), axis=1)
-                pred = reverse_CoordNorm(pred, image_size)
+                pred = ReverseCoordNorm(pred, image_size)
                 rgbs = get_rgbs(pred, image_size)
                 axes[idx, 1].scatter(pred[:,0], pred[:,1], s=5, c=rgbs)
                 axes[idx, 1].set_title(titles[1])   
@@ -109,7 +114,7 @@ def get_viz(view1, view2, pred1, pred2, losses=None):
                 axes[idx, 2].imshow(conf2)   
                 axes[idx, 2].set_title(titles[2]) 
 
-                view2_img_scaled = reverse_ImgNorm(view2_img[b])
+                view2_img_scaled = ReverseImgNorm(view2_img[b])
                 axes[idx, 3].imshow(view2_img_scaled)   
                 image_xys = get_nonzero_xys(view2["xys"][b].cpu()).numpy()   
                 axes[idx, 3].scatter(image_xys[:,0], image_xys[:,1], s=1, c=rgbs) 
@@ -131,7 +136,9 @@ def get_viz(view1, view2, pred1, pred2, losses=None):
                 # axes[idx, 6].set_title(titles[6]) 
                 
                 if losses is not None:
-                    axes[idx, 0].set_ylabel(f"loss: {losses[b]:.6f}")
+                    axes[idx, 0].set_ylabel(f"{b}. loss: {losses[b]:.6f}")
+                else:
+                    axes[idx, 0].set_ylabel(f"{b}")
             
             idx += 1
 
@@ -140,3 +147,156 @@ def get_viz(view1, view2, pred1, pred2, losses=None):
         return fig
     viz = gen_plot(view1, view2, pred1, pred2, losses=losses)
     return viz
+
+
+def get_viz_html(fig, save_path):
+    buf = BytesIO()
+    fig.savefig(buf, format='png')
+    buf.seek(0)
+
+    img_str = base64.b64encode(buf.read()).decode('utf-8')
+
+    html_str = f'<img src="data:image/png;base64,{img_str}"/>'
+    with open(save_path, 'w', encoding='utf-8') as f:
+        f.write(html_str)
+        print(f"HTML saved to {os.path.abspath(save_path)}")
+
+# def get_viz_html(view1s, view2s, pred1s, pred2s, save_path=None, point_color='blue', point_size=1):
+#     """
+#     Display two PyTorch tensors side by side in HTML format, with optional point overlays.
+    
+#     Parameters:
+#     tensor1 (torch.Tensor): First tensor with shape (B, C, H, W)
+#     tensor2 (torch.Tensor): Second tensor with shape (B, C, H, W)
+#     titles (list, optional): List of tuples with titles for each pair of images
+#     save_path (str, optional): Path to save the HTML file. If None, returns the HTML object
+#     points1 (torch.Tensor, optional): Points to draw on first tensor, shape (B, N, 2) where N is number of points
+#                                      and values are (x, y) coordinates in pixel space
+#     points2 (torch.Tensor, optional): Points to draw on second tensor, shape (B, N, 2)
+#     point_color (str, optional): Color of the points to draw
+#     point_size (int, optional): Size of the points to draw
+    
+#     Returns:
+#     IPython.display.HTML or None: HTML output displaying the images side by side if save_path is None
+#     """
+#     B, C, H, W = view1s["img"].size()
+#     titles = [[f"{title} {i}" for title in ["gt", "pred2", "conf_pred2", "image+correspondences", "image"]] for i in range(B)]
+
+#     # Function to convert a tensor to a base64 encoded image with optional points
+#     def tensor_to_base64(tensor, points=None, to_pil=None):        
+#         # Convert to numpy and then to PIL Image
+#         images_base64 = []
+        
+#         for i in range(tensor.size(0)):
+#             tensor_i = tensor[i]
+#             if tensor_i.size(0) == tensor_i.size(1):
+#                 tensor_i = torch.unsqueeze(tensor_i, 0)
+#                 print(max(tensor_i), min(tensor_i))
+#             print(tensor_i.size())
+#             img = ReverseImgNorm(tensor_i)
+#             img = to_pil(img)
+            
+#             # If points are provided, draw them on the image
+#             if points is not None and i < len(points):
+#                 draw = ImageDraw.Draw(img)
+#                 batch_points = points[i]
+                
+#                 for point in get_nonzero_xys(batch_points):
+#                     x, y = point
+#                     # Draw a small circle at each point
+#                     draw.ellipse(
+#                         [(x - point_size, y - point_size), 
+#                          (x + point_size, y + point_size)], 
+#                         fill=point_color
+#                     )
+            
+#             buffer = BytesIO()
+#             img.save(buffer, format="PNG")
+#             img_str = base64.b64encode(buffer.getvalue()).decode("utf-8")
+#             images_base64.append(img_str)
+        
+#         return images_base64
+    
+#     # Convert both tensors to base64 with points if provided
+#     images0_base64 = tensor_to_base64(view1s["img"], points=view1s["xys"], to_pil=T.ToPILImage())
+#     images1_base64 = tensor_to_base64(view1s["img"], to_pil=T.ToPILImage())
+#     images2_base64 = tensor_to_base64(pred2s["conf"], to_pil=T.ToPILImage())
+#     images3_base64 = tensor_to_base64(view2s["img"], points=view2s["xys"], to_pil=T.ToPILImage())
+#     images4_base64 = tensor_to_base64(view2s["img"], to_pil=T.ToPILImage())
+    
+    
+#     # Create HTML
+#     html = """
+#     <style>
+#         .image-container {
+#             display: flex;
+#             margin-bottom: 20px;
+#         }
+#         .image-pair {
+#             margin-right: 20px;
+#             text-align: center;
+#         }
+#         .image-pair img {
+#             max-width: 100%;
+#             height: auto;
+#         }
+#         .image-title {
+#             margin-top: 5px;
+#             font-weight: bold;
+#         }
+#     </style>
+#     """
+    
+#     for i in range(B):
+#         html += f"""
+#         <div class="image-container">
+#             <div class="image-pair">
+#                 <div class="image-title">{titles[i][0]}</div>
+#                 <img src="data:image/png;base64,{images0_base64[i]}" />
+#             </div>
+#             <div class="image-pair">
+#                 <div class="image-title">{titles[i][1]}</div>
+#                 <img src="data:image/png;base64,{images1_base64[i]}" />
+#             </div>
+#             <div class="image-pair">
+#                 <div class="image-title">{titles[i][2]}</div>
+#                 <img src="data:image/png;base64,{images2_base64[i]}" />
+#             </div>
+#             <div class="image-pair">
+#                 <div class="image-title">{titles[i][3]}</div>
+#                 <img src="data:image/png;base64,{images3_base64[i]}" />
+#             </div>
+#             <div class="image-pair">
+#                 <div class="image-title">{titles[i][4]}</div>
+#                 <img src="data:image/png;base64,{images4_base64[i]}" />
+#             </div>
+#         </div>
+#         """
+    
+#     if save_path:
+#         with open(save_path, 'w', encoding='utf-8') as f:
+#             f.write(html)
+#         print(f"HTML saved to {os.path.abspath(save_path)}")
+#         return None
+#     else:
+#         return HTML(html)
+
+# # Example usage:
+# # Assuming you have two tensors of shape (B, C, H, W)
+# # tensor1 = torch.randn(3, 3, 224, 224)  # 3 RGB images
+# # tensor2 = torch.randn(3, 3, 224, 224)  # 3 RGB images
+# # custom_titles = [("Original 1", "Processed 1"), ("Original 2", "Processed 2"), ("Original 3", "Processed 3")]
+# # 
+# # # Create some random points - shape (B, N, 2) where N is number of points per image
+# # # points1 = torch.randint(0, 224, (3, 10, 2))  # 3 images, 10 points each, x and y coordinates
+# # # points2 = torch.randint(0, 224, (3, 10, 2))
+# # 
+# # # To display in notebook:
+# # display_tensors_side_by_side(tensor1, tensor2, titles=custom_titles)
+# # 
+# # # To display with points:
+# # # display_tensors_side_by_side(tensor1, tensor2, titles=custom_titles, 
+# # #                             points1=points1, points2=points2, point_color='yellow', point_size=4)
+# # 
+# # # To save as HTML file:
+# # # display_tensors_side_by_side(tensor1, tensor2, points1=points1, points2=points2, titles=custom_titles, save_path="comparison.html")

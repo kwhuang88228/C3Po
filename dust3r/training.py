@@ -32,8 +32,8 @@ torch.backends.cuda.matmul.allow_tf32 = True  # for gpu >= Ampere and pytorch >=
 from dust3r.model import AsymmetricCroCo3DStereo, inf  # noqa: F401, needed when loading the model
 from dust3r.datasets import get_data_loader  # noqa
 from dust3r.losses import *  # noqa: F401, needed when loading the model
-from dust3r.inference import loss_of_one_batch, inference  # noqa
-from dust3r.utils.viz import get_viz
+from dust3r.inference import loss_of_one_batch, inference, build_dataset  # noqa
+from dust3r.utils.viz import get_viz, get_viz_html
 
 import dust3r.utils.path_to_croco  # noqa: F401
 import croco.utils.misc as misc  # noqa
@@ -270,20 +270,20 @@ def save_final_model(args, epoch, model_without_ddp, best_so_far=None):
     misc.save_on_master(to_save, checkpoint_path)
 
 
-def build_dataset(dataset, batch_size, num_workers, test=False):
-    split = ['Train', 'Test'][test]
-    print(f'Building {split} Data loader for dataset')
-    loader = get_data_loader(
-        dataset,
-        batch_size=batch_size,
-        num_workers=num_workers,
-        pin_mem=True,
-        shuffle=not (test),
-        drop_last=not (test)
-    )
+# def build_dataset(dataset, batch_size, num_workers, test=False):
+#     split = ['Train', 'Test'][test]
+#     print(f'Building {split} Data loader for dataset')
+#     loader = get_data_loader(
+#         dataset,
+#         batch_size=batch_size,
+#         num_workers=num_workers,
+#         pin_mem=True,
+#         shuffle=not (test),
+#         drop_last=not (test)
+#     )
 
-    print(f"{split} dataset length: {len(loader)}")
-    return loader
+#     print(f"{split} dataset length: {len(loader)}")
+#     return loader
 
 
 def is_main_process():
@@ -384,6 +384,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                 log_writer.add_scalar('train_' + name, val, epoch_1000x)
 
         # if data_iter_step == 0 and (epoch == 0 or (epoch + 1) % 10 == 0):
+        os.makedirs(os.path.join(args.output_dir, "train"), exist_ok=True)
         if data_iter_step == 0:
             # losses = []
             view1s = dict()
@@ -397,7 +398,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
             pred2s = aggregate(pred2s, result["pred2"])
         if data_iter_step == 127:
             viz = get_viz(view1s, view2s, pred1s, pred2s)
-            log_writer.add_figure('train_samples', viz, epoch)
+            get_viz_html(viz, save_path=join(args.output_dir, "train", f"train_{epoch}.html"))
             del view1s, view2s, pred1s, pred2s
     
 
@@ -435,9 +436,8 @@ def test_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
         metric_logger.update(loss=float(loss_value))
         # loss_value, loss_details = loss_tuple  # criterion returns two values
         metric_logger.update(loss=float(loss_value), **loss_details)
-        # if data_iter_step == 0 and (epoch == 0 or (epoch + 1) % 10 == 0) and log_writer is not None:
-        #     viz = get_viz(result["view1"], result["view2"], result["pred1"], result["pred2"])
-        #     log_writer.add_figure('test_samples', viz, epoch)
+        os.makedirs(os.path.join(args.output_dir, "test"), exist_ok=True)
+        os.makedirs(os.path.join(args.output_dir, "test_sorted"), exist_ok=True)
         if log_writer is not None:
             if data_iter_step == 0:
                 losses = []
@@ -454,8 +454,8 @@ def test_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
             if data_iter_step == 127:
                 viz = get_viz(view1s, view2s, pred1s, pred2s)
                 sorted_viz = get_viz(view1s, view2s, pred1s, pred2s, losses=losses)
-                log_writer.add_figure('test_samples', viz, epoch)
-                log_writer.add_figure('test_samples_sorted', sorted_viz, epoch)
+                get_viz_html(viz, save_path=join(args.output_dir, "test", f"test_{epoch}.html"))
+                get_viz_html(sorted_viz, save_path=join(args.output_dir, "test_sorted", f"test_sorted_{epoch}.html"))
                 del view1s, view2s, pred1s, pred2s
     
 
