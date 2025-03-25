@@ -1,6 +1,7 @@
 import base64
 import os
 from io import BytesIO
+import PIL.Image
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -147,6 +148,47 @@ def get_viz(view1, view2, pred1, pred2, losses=None):
         return fig
     viz = gen_plot(view1, view2, pred1, pred2, losses=losses)
     return viz
+
+
+def get_cdf(values, epoch):
+    """
+    Plot a graph where the y-axis represents the percentage of values in the list
+    that are less than the x value.
+    
+    Args:
+        values: List of floating point numbers
+    """
+    # Sort the values
+    sorted_values = np.sort(values)
+    
+    # Calculate the cumulative percentages (0 to 100)
+    percentages = np.arange(1, len(sorted_values) + 1) / len(sorted_values) * 100
+    
+    # Create the plot
+    plt.figure(figsize=(12, 8))
+    plt.plot(sorted_values, percentages, '-o', markersize=4)
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.xlabel('Loss')
+    plt.ylabel('Percentage of values < x')
+    plt.title(f'Epoch {epoch}')
+    
+    # Add a horizontal line at 50% for the median
+    plt.axhline(y=50, color='r', linestyle='--', alpha=0.5, label='50% (median)')
+    
+    # Add a few percentage annotations
+    plt.axhline(y=25, color='gray', linestyle='--', alpha=0.5, label='25%')
+    plt.axhline(y=75, color='gray', linestyle='--', alpha=0.5, label='75%')
+    
+    plt.legend()
+    plt.tight_layout()
+    
+    buf = BytesIO()
+    plt.savefig(buf, format='png')
+    buf.seek(0)
+
+    image = PIL.Image.open(buf)
+    image_tensor = torch.tensor(np.array(image).transpose(2, 0, 1))  # Convert to CHW format
+    return image_tensor
 
 
 def get_viz_html(fig, save_path):
