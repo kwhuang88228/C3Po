@@ -314,7 +314,7 @@ class ConfLoss (MultiLoss):
         # weight by confidence
         conf1, log_conf1 = self.get_conf_log(pred1['conf'][msk1])  # (2HW), (2HW)
         conf2, log_conf2 = self.get_conf_log(pred2['conf'][msk2])  # (M+N), (M+N)
-        conf_loss1 = loss1 * conf1 #- self.alpha * log_conf1
+        conf_loss1 = loss1 * conf1 - self.alpha * log_conf1
         conf_loss2 = loss2 * conf2 - self.alpha * log_conf2
 
         # average + nan protection (in case of no valid pixels at all)
