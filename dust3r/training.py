@@ -32,8 +32,8 @@ torch.backends.cuda.matmul.allow_tf32 = True  # for gpu >= Ampere and pytorch >=
 from dust3r.model import AsymmetricCroCo3DStereo, inf  # noqa: F401, needed when loading the model
 from dust3r.datasets import get_data_loader  # noqa
 from dust3r.losses import *  # noqa: F401, needed when loading the model
-from dust3r.inference import loss_of_one_batch, inference, build_dataset  # noqa
-from dust3r.utils.viz import get_viz, get_viz_html
+from dust3r.inference import loss_of_one_batch, inference, build_dataset, losses_greater_than_x  # noqa
+from dust3r.utils.viz import get_viz, get_viz_html, get_cdf
 
 import dust3r.utils.path_to_croco  # noqa: F401
 import croco.utils.misc as misc  # noqa
@@ -228,7 +228,6 @@ def train(args):
             # for test_name, testset in data_loader_test.items():
             test_stats = test_one_epoch(model, test_criterion, data_loader_test,
                                     device, epoch, log_writer=log_writer, args=args, prefix="test")
-            print(f"test stats: {test_stats}")
 
             # Save best of all
             if test_stats['loss'] < best_so_far:
@@ -268,23 +267,6 @@ def save_final_model(args, epoch, model_without_ddp, best_so_far=None):
         to_save['best_so_far'] = best_so_far
     print(f'>> Saving model to {checkpoint_path} ...')
     misc.save_on_master(to_save, checkpoint_path)
-
-
-# def build_dataset(dataset, batch_size, num_workers, test=False):
-#     split = ['Train', 'Test'][test]
-#     print(f'Building {split} Data loader for dataset')
-#     loader = get_data_loader(
-#         dataset,
-#         batch_size=batch_size,
-#         num_workers=num_workers,
-#         pin_mem=True,
-#         shuffle=not (test),
-#         drop_last=not (test)
-#     )
-
-#     print(f"{split} dataset length: {len(loader)}")
-#     return loader
-
 
 def is_main_process():
     return torch.distributed.get_rank() == 0
@@ -331,9 +313,6 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
 
     
     for data_iter_step, batch in enumerate(metric_logger.log_every(data_loader, args.print_freq, header)):
-        print(f"Start training for data_iter_step {data_iter_step}")
-        start_time = time.time()
-
         epoch_f = epoch + data_iter_step / len(data_loader)
 
         # we use a per iteration (instead of per epoch) lr scheduler
@@ -345,10 +324,6 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                                        use_amp=bool(args.amp))
         loss, loss_details = result["loss"]
         loss_value = float(loss)
-
-        total_time = time.time() - start_time
-        total_time_str = str(datetime.timedelta(seconds=int(total_time)))
-        print(f"Training time for data_iter_step {data_iter_step}: {total_time_str} seconds")
 
         if not math.isfinite(loss_value):
             print("Loss is {}, stopping training".format(loss_value), force=True)
@@ -425,6 +400,7 @@ def test_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
     if hasattr(data_loader, 'sampler') and hasattr(data_loader.sampler, 'set_epoch'):
         data_loader.sampler.set_epoch(epoch)
 
+    losses = []
     for data_iter_step, batch in enumerate(metric_logger.log_every(data_loader, args.print_freq, header)):
         result = loss_of_one_batch(batch, model, criterion, device,
                                        symmetrize_batch=False,
@@ -439,26 +415,34 @@ def test_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
         os.makedirs(os.path.join(args.output_dir, "test"), exist_ok=True)
         os.makedirs(os.path.join(args.output_dir, "test_sorted"), exist_ok=True)
         if log_writer is not None:
+            losses.append(float(loss_value))
             if data_iter_step == 0:
-                losses = []
                 view1s = dict()
                 view2s = dict()
                 pred1s = dict()
                 pred2s = dict()
             if data_iter_step <= 127:
-                losses.append(loss_value)
                 view1s = aggregate(view1s, result["view1"])
                 view2s = aggregate(view2s, result["view2"])
                 pred1s = aggregate(pred1s, result["pred1"])
                 pred2s = aggregate(pred2s, result["pred2"])
             if data_iter_step == 127:
-                viz = get_viz(view1s, view2s, pred1s, pred2s)
+                viz = get_viz(view1s, view2s, pred1s, pred2s, losses=losses)
                 sorted_viz = get_viz(view1s, view2s, pred1s, pred2s, losses=losses)
                 get_viz_html(viz, save_path=join(args.output_dir, "test", f"test_{epoch}.html"))
                 get_viz_html(sorted_viz, save_path=join(args.output_dir, "test_sorted", f"test_sorted_{epoch}.html"))
                 del view1s, view2s, pred1s, pred2s
-    
-
+            
+    if log_writer is not None:
+        cdf = get_cdf(losses, epoch)
+        log_writer.add_image("percent of loss under x", cdf, epoch)
+        log_writer.add_scalar("losses greater than 0.01", losses_greater_than_x(losses, 0.01), 1000*epoch)
+        log_writer.add_scalar("losses greater than 0.05", losses_greater_than_x(losses, 0.05), 1000*epoch)
+        log_writer.add_scalar("losses greater than 0.1", losses_greater_than_x(losses, 0.1), 1000*epoch)
+        log_writer.add_scalar("losses greater than 0.15", losses_greater_than_x(losses, 0.15), 1000*epoch)
+        log_writer.add_scalar("losses greater than 0.2", losses_greater_than_x(losses, 0.2), 1000*epoch)
+        log_writer.add_scalar("losses greater than 0.25", losses_greater_than_x(losses, 0.25), 1000*epoch)
+        
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
     print("Averaged stats:", metric_logger)
