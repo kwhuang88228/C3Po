@@ -65,6 +65,10 @@ def loss_of_one_batch(batch, model, criterion, device, symmetrize_batch=False, u
     result = dict(view1=view1, view2=view2, pred1=pred1, pred2=pred2, loss=loss)
     return result[ret] if ret else result
 
+def losses_greater_than_x(losses, threshold):
+    if isinstance(losses, list):
+        losses = np.array(losses)
+    return losses[losses >= threshold].sum()/len(losses)
 
 # @torch.no_grad()
 # def inference(pairs, model, device, batch_size=8, verbose=True):
