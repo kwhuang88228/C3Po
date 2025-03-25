@@ -65,14 +65,14 @@ from dust3r.utils.image import load_megascenes_augmented_images
 #         )
 #         view1, view2 = images
 #         return view1, view2
-# CUDA_VISIBLE_DEVICES=0,1,2 torchrun --nproc_per_node 3 train.py \
+# CUDA_VISIBLE_DEVICES=0 torchrun --nproc_per_node 1 train.py \
 #     --train_dataset="MegaScenesAugmented(data_dir='/share/phoenix/nfs06/S9/kh775/code/wsfm/scripts/data/keypoint_localization/old/', image_dir='/share/phoenix/nfs06/S9/kh775/dataset/megascenes_augmented_exhaustive/', split='train', resolution=[(512, 512)])" \
 #     --test_dataset="MegaScenesAugmented(data_dir ='/share/phoenix/nfs06/S9/kh775/code/wsfm/scripts/data/keypoint_localization/old/', image_dir='/share/phoenix/nfs06/S9/kh775/dataset/megascenes_augmented_exhaustive/', split='test', resolution=[(512, 512)])" \
-#     --train_criterion="ConfLoss(PointLoss(RMSE), alpha=0.2)" \
-#     --test_criterion="PointLoss(RMSE)" \
+#     --train_criterion="ConfLoss(PointLoss(L21), alpha=0.2)" \
+#     --test_criterion="PointLoss(L21)" \
 #     --model "AsymmetricCroCo3DStereo(pos_embed='RoPE100', patch_embed_cls='ManyAR_PatchEmbed', img_size=(512, 512), head_type='dpt', output_mode='pts3d', depth_mode=('exp', -inf, inf), conf_mode=('exp', 1, inf), enc_embed_dim=1024, enc_depth=24, enc_num_heads=16, dec_embed_dim=768, dec_depth=12, dec_num_heads=12)" \
 #     --pretrained="checkpoints/DUSt3R_ViTLarge_BaseDecoder_512_dpt.pth" \
-#     --lr=1e-04 --min_lr=1e-06 --warmup_epochs=3 --epochs=500 --batch_size=2 --accum_iter=1 \
+#     --lr=1e-04 --min_lr=1e-06 --warmup_epochs=3 --epochs=500 --train_batch_size=2 --test_batch_size=1 --accum_iter=1 \
 #     --save_freq=1 --keep_freq=10 --eval_freq=1 --num_workers=4\
 #     --output_dir="checkpoints/dust3r_dpt512_allplans_xz_DELETE"
 
@@ -95,9 +95,10 @@ class MegaScenesAugmented(BaseStereoViewDataset):
             self.image_pairs = []            
             reader = csv.reader(f)
             bad_pairs = self._get_bad_pairs()
+            bad_plans = self._get_bad_plans()
             for row in reader:
                 i, landmark, comp, plan_name, image_name = row
-                if (plan_name, image_name) not in bad_pairs and (landmark, comp) not in bad_landmark_comp_pairs:
+                if (plan_name, image_name) not in bad_pairs and (landmark, comp) not in bad_landmark_comp_pairs and plan_name not in bad_plans:
                     self.image_pairs.append(row)
         print(f"{len(self.image_pairs)} image pairs loaded")
 
@@ -114,6 +115,14 @@ class MegaScenesAugmented(BaseStereoViewDataset):
             print(f"Loaded {len(list(open(file_path).readlines()))} bad pairs from {file_name}")
         return bad_pairs
 
+    def _get_bad_plans(self):
+        bad_plans = set()
+        plan_path = os.path.join(self.data_dir, "bad_plans.txt")
+        for plan_name in list(open(plan_path).readlines()):
+            bad_plans.add(plan_name.replace("\n", "").split("plans/")[-1])
+        print(f"Loaded {len(list(open(plan_path).readlines()))} bad plans from {plan_path}")
+        return bad_plans
+
     def __len__(self):
         return (len(self.image_pairs))
 
@@ -128,7 +137,7 @@ class MegaScenesAugmented(BaseStereoViewDataset):
         images = load_megascenes_augmented_images(
             [plan_path, image_path], 
             size=size, 
-            plan_xys=xys[0],
+            plan_xys=xys[0], 
             image_xys=xys[1], 
             verbose=False
         )
@@ -150,9 +159,7 @@ if __name__ == "__main__":
     #     # print(view1, view2)
     #     # print(view1["img"].size(), view2["img"].size())
     #     _, s, _ = view1["plan_xys"].size()
-        
     #     if s > max_s:
     #         max_s = s
-    
     # print(max_s)
         
