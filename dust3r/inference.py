@@ -98,7 +98,8 @@ def build_dataset(dataset, batch_size, num_workers, test=False):
         num_workers=num_workers,
         pin_mem=True,
         shuffle=not (test),
-        drop_last=not (test)
+        drop_last=not (test),
+        test=test
     )
 
     print(f"{split} dataset length: {len(loader)}")
@@ -108,18 +109,20 @@ def build_dataset(dataset, batch_size, num_workers, test=False):
 def inference(model, test_criterion, device, epoch, output_dir, log_writer):
     def make_batches(plan_path, img_path, xys_path, batch_size):
         plan_xys, image_xys = np.load(xys_path)
-        pair = load_megascenes_augmented_images((plan_path, img_path), size=512, plan_xys=plan_xys, image_xys=image_xys)  
+        pair = load_megascenes_augmented_images((plan_path, img_path), size=512, plan_xys=plan_xys, image_xys=image_xys, transform="ImgNorm")  
         batches = build_dataset([pair], batch_size, num_workers=4, test=True)
         return batches
 
     def get_inference_viz(batches, model, criterion, device):
         viz_list = []
+        centroids_diff_list = []
         for batch in batches:
             output = loss_of_one_batch(batch, model=model, criterion=criterion, device=device, symmetrize_batch=False, use_amp=False, ret=None)
             loss, _ = output["loss"]
-            viz = get_viz(output["view1"], output["view2"], output["pred1"], output["pred2"], [loss.item()])
+            viz, centroids_diff = get_viz(output["view1"], output["view2"], output["pred1"], output["pred2"], [loss.item()])
             viz_list.append(viz)
-        return viz_list
+            centroids_diff_list.append(centroids_diff)
+        return viz_list, centroids_diff_list
     
     pairs_path = "/share/phoenix/nfs06/S9/kh775/code/wsfm/scripts/data/keypoint_localization/data/intuitive_pairs.txt"
     pairs_info = []
@@ -130,11 +133,15 @@ def inference(model, test_criterion, device, epoch, output_dir, log_writer):
 
     npx_dir = "/share/phoenix/nfs06/S9/kh775/code/wsfm/scripts/data/keypoint_localization/data/data_test/coords"
     fig_list = []
+    centroids_diff_list = []
     for idx, (npx_num, plan_path, image_path) in enumerate(pairs_info):
         npx_path = os.path.join(npx_dir, f"{int(npx_num):06}.npy")
         batches = make_batches(plan_path, image_path, npx_path, batch_size=1)
-        viz = get_inference_viz(batches, model, test_criterion, device)
+        viz, centroids_diff= get_inference_viz(batches, model, test_criterion, device)
         fig_list.append(viz[0])
+        log_writer.add_scalar(f"intuitive_centroids_diff_{idx}", centroids_diff[0][0], epoch)
+        centroids_diff_list.append(centroids_diff[0][0])
+    log_writer.add_scalar("intuitive_centroids_diff", np.mean(centroids_diff_list), epoch)
 
     pil_images = []
     for fig in fig_list:

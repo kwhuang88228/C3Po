@@ -33,7 +33,7 @@ from dust3r.model import AsymmetricCroCo3DStereo, inf  # noqa: F401, needed when
 from dust3r.datasets import get_data_loader  # noqa
 from dust3r.losses import *  # noqa: F401, needed when loading the model
 from dust3r.inference import loss_of_one_batch, inference, build_dataset, losses_greater_than_x  # noqa
-from dust3r.utils.viz import get_viz, get_viz_html, get_cdf
+from dust3r.utils.viz import get_viz, get_viz_html, get_cdf, get_centroid
 
 import dust3r.utils.path_to_croco  # noqa: F401
 import croco.utils.misc as misc  # noqa
@@ -115,6 +115,10 @@ def train(args):
     print("output_dir: " + args.output_dir)
     if args.output_dir:
         Path(args.output_dir).mkdir(parents=True, exist_ok=True)
+
+    # log command to a text file
+    with open(os.path.join(args.output_dir, "command.txt"), 'w') as f:
+        f.write('\n'.join(sys.argv) + '\n')
 
     # auto resume
     last_ckpt_fname = os.path.join(args.output_dir, f'checkpoint-last.pth')
@@ -238,7 +242,8 @@ def train(args):
         write_log_stats(epoch, train_stats, test_stats)
 
         # Inference on the "intuitive" pairs
-        inference(model, test_criterion, device, epoch, args.output_dir, log_writer)
+        if log_writer is not None:
+            inference(model, test_criterion, device, epoch, args.output_dir, log_writer)
 
         if epoch > args.start_epoch:
             if args.keep_freq and epoch % args.keep_freq == 0:
@@ -372,8 +377,10 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
             pred1s = aggregate(pred1s, result["pred1"])
             pred2s = aggregate(pred2s, result["pred2"])
         if data_iter_step == 127:
-            viz = get_viz(view1s, view2s, pred1s, pred2s)
+            # centroid diff measures the distance between centroids of the predicted points and gt points
+            viz, centroids_diff = get_viz(view1s, view2s, pred1s, pred2s)
             get_viz_html(viz, save_path=join(args.output_dir, "train", f"train_{epoch}.html"))
+            log_writer.add_scalar("train_centroids_diff", np.mean(centroids_diff), epoch_1000x)
             del view1s, view2s, pred1s, pred2s
     
 
@@ -414,6 +421,7 @@ def test_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
         metric_logger.update(loss=float(loss_value), **loss_details)
         os.makedirs(os.path.join(args.output_dir, "test"), exist_ok=True)
         os.makedirs(os.path.join(args.output_dir, "test_sorted"), exist_ok=True)
+
         if log_writer is not None:
             losses.append(float(loss_value))
             if data_iter_step == 0:
@@ -427,10 +435,12 @@ def test_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                 pred1s = aggregate(pred1s, result["pred1"])
                 pred2s = aggregate(pred2s, result["pred2"])
             if data_iter_step == 127:
-                viz = get_viz(view1s, view2s, pred1s, pred2s, losses=losses)
-                sorted_viz = get_viz(view1s, view2s, pred1s, pred2s, losses=losses)
+                # centroid diff measures the distance between centroids of the predicted points and gt points
+                viz, centroids_diff = get_viz(view1s, view2s, pred1s, pred2s, losses=losses, sort=False)
+                sorted_viz, _ = get_viz(view1s, view2s, pred1s, pred2s, losses=losses, sort=True)
                 get_viz_html(viz, save_path=join(args.output_dir, "test", f"test_{epoch}.html"))
                 get_viz_html(sorted_viz, save_path=join(args.output_dir, "test_sorted", f"test_sorted_{epoch}.html"))
+                log_writer.add_scalar("test_centroids_diff", np.mean(centroids_diff), 1000*epoch)
                 del view1s, view2s, pred1s, pred2s
             
     if log_writer is not None:
