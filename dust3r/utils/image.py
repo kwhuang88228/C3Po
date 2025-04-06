@@ -11,6 +11,7 @@ import PIL.Image
 import torch
 import torchvision.transforms as tvf
 from PIL.ImageOps import exif_transpose
+from dust3r.datasets.utils.transforms import ImgNorm, ColorJitter, PhotometricTransforms
 
 os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
 import cv2  # noqa
@@ -24,8 +25,6 @@ try:
     heif_support_enabled = True
 except ImportError:
     heif_support_enabled = False
-
-ImgNorm = tvf.Compose([tvf.ToTensor(), tvf.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
 
 
 def img_to_arr( img ):
@@ -176,7 +175,7 @@ def load_images(folder_or_list, size, square_ok=False, verbose=True):
         print(f' (Found {len(imgs)} images)')
     return imgs
 
-def load_megascenes_augmented_images(pair, size, plan_xys, image_xys, square_ok=False, verbose=True):
+def load_megascenes_augmented_images(pair, size, plan_xys, image_xys, transform, square_ok=False, verbose=True):
     """ open and convert all images in a list or folder to proper input format for DUSt3R
     """
     import matplotlib.pyplot as plt
@@ -221,13 +220,15 @@ def load_megascenes_augmented_images(pair, size, plan_xys, image_xys, square_ok=
 
     plan_W2, plan_H2 = plan_updated.size
     img_W2, img_H2 = img_updated.size
+    
+    transform = eval(transform)
 
     if verbose:
         print(f' - adding {plan_path} with resolution {plan_W1}x{plan_H1} --> {plan_W2}x{plan_H2}')
         print(f' - adding {img_path} with resolution {img_W1}x{img_H1} --> {img_W2}x{img_H2}')
     image_views.append(
         dict(
-            img=ImgNorm(plan_updated)[None], 
+            img=transform(plan_updated)[None], 
             true_shape=np.int32([plan_updated.size[::-1]]), 
             idx=len(image_views), 
             instance=str(len(image_views)), 
@@ -250,43 +251,6 @@ def load_megascenes_augmented_images(pair, size, plan_xys, image_xys, square_ok=
 
 
 if __name__ == "__main__":
-    # folder_or_list = [
-    #     "/share/phoenix/nfs06/S9/kh775/dataset/megascenes_augmented_exhaustive/Tower_of_London/plans/File:14 of '(Memorials of the Tower of London ... With illustrations.)' (11083417374).jpg",
-    #     "/share/phoenix/nfs06/S9/kh775/dataset/megascenes_augmented_exhaustive/Tower_of_London/images/commons/Tower_of_London/0/pictures/St Katharine's ^ Wapping, London, UK - panoramio (30).jpg"
-    # ]
-    # size = 224
-    # xys = np.load("/share/phoenix/nfs06/S9/kh775/code/wsfm/scripts/data/keypoint_localization/data_train/coords/00000000.npy")
-    # plan_xys = xys[0]
-    # image_xys = xys[1]
-    # image_views = load_megascenes_augmented_images(folder_or_list, size, plan_xys, image_xys, square_ok=False, verbose=True)
-
-    # folder_or_list = [
-    #     "/share/phoenix/nfs06/S9/kh775/dataset/megascenes_augmented_exhaustive/Tower_of_London/plans/File:14 of '(Memorials of the Tower of London ... With illustrations.)' (11083417374).jpg",
-    #     "/share/phoenix/nfs06/S9/kh775/dataset/megascenes_augmented_exhaustive/Tower_of_London/images/commons/Tower_of_London/0/pictures/The Red Tower of London - panoramio.jpg"
-    # ]
-    # size = 224
-    # xys = np.load("/share/phoenix/nfs06/S9/kh775/code/wsfm/scripts/data/keypoint_localization/data_train/coords/00000001.npy")
-    # plan_xys = xys[0]
-    # image_xys = xys[1]
-    # load_megascenes_augmented_images(folder_or_list, size, plan_xys, image_xys, square_ok=False, verbose=True)
-
-    # folder_or_list = [
-    #     "/share/phoenix/nfs06/S9/kh775/dataset/megascenes_augmented_exhaustive/Abbatiale_d'Ottmarsheim/plans/File:Ottmarsheim oben.jpg",
-    #     "/share/phoenix/nfs06/S9/kh775/dataset/megascenes_augmented_exhaustive/Abbatiale_d'Ottmarsheim/images/commons/Abbatiale_d'Ottmarsheim/0/pictures/Abbatiale Saint Pierre et Saint Paul.jpg"
-    # ]
-    # size = 224
-    # xys = np.load("/share/phoenix/nfs06/S9/kh775/code/wsfm/scripts/data/keypoint_localization/data_train/one_plan_2/coords/00000000.npy")
-    # plan_xys = xys[0]
-    # image_xys = xys[1]
-    # image_views = load_megascenes_augmented_images(folder_or_list, size, plan_xys, image_xys, square_ok=False, verbose=True)
-
-    coordNorm = CoordNorm()
-    size = 224
-    array = np.array([[0, 0], [223, 223], [112, 112], [78.53040103, 113.89391979]])
-    norm = coordNorm(array, size)
-    print(norm)
-    print((norm + 1) * (size - 1) / 2)
-
     pass
 
 

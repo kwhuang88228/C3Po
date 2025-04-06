@@ -16,6 +16,8 @@ from .utils.transforms import *
 from .waymo import Waymo  # noqa
 from .wildrgbd import WildRGBD  # noqa
 
+from dust3r.datasets.utils.transforms import ColorJitter
+
 
 def collate_fn(batch):  # batch:[(view1, view2) * batch_size]
     # print(view1["img"].size(), view1["plan_xys"].shape)  # Should be torch.Size([8, 3, 224, 224]) torch.Size([8, 733, 2])   
@@ -53,7 +55,7 @@ def collate_fn(batch):  # batch:[(view1, view2) * batch_size]
     )
     return final_view1, final_view2
 
-def get_data_loader(dataset, batch_size, num_workers=8, shuffle=True, drop_last=True, pin_mem=True):
+def get_data_loader(dataset, batch_size, num_workers=8, shuffle=True, drop_last=True, pin_mem=True, test=None):
     import torch
     from croco.utils.misc import get_rank, get_world_size
 

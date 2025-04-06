@@ -9,7 +9,8 @@ import numpy as np
 import torch
 
 from dust3r.datasets.base.easy_dataset import EasyDataset
-from dust3r.datasets.utils.transforms import ImgNorm
+from dust3r.datasets.utils.transforms import ImgNorm, ColorJitter, PhotometricTransforms
+
 from dust3r.utils.geometry import depthmap_to_absolute_camera_coordinates
 import dust3r.datasets.utils.cropping as cropping
 
@@ -39,6 +40,7 @@ class BaseStereoViewDataset (EasyDataset):
         self.transform = transform
         if isinstance(transform, str):
             transform = eval(transform)
+            print(f"transform: {transform}")
 
         self.aug_crop = aug_crop
         self.seed = seed

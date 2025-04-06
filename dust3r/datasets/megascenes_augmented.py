@@ -61,20 +61,21 @@ from dust3r.utils.image import load_megascenes_augmented_images
 #             size=size, 
 #             plan_xys=xys[0],
 #             image_xys=xys[1], 
+#             transform=self.transform,
 #             verbose=False
 #         )
 #         view1, view2 = images
 #         return view1, view2
 # CUDA_VISIBLE_DEVICES=0 torchrun --nproc_per_node 1 train.py \
-#     --train_dataset="MegaScenesAugmented(data_dir='/share/phoenix/nfs06/S9/kh775/code/wsfm/scripts/data/keypoint_localization/old/', image_dir='/share/phoenix/nfs06/S9/kh775/dataset/megascenes_augmented_exhaustive/', split='train', resolution=[(512, 512)])" \
-#     --test_dataset="MegaScenesAugmented(data_dir ='/share/phoenix/nfs06/S9/kh775/code/wsfm/scripts/data/keypoint_localization/old/', image_dir='/share/phoenix/nfs06/S9/kh775/dataset/megascenes_augmented_exhaustive/', split='test', resolution=[(512, 512)])" \
+#     --train_dataset="MegaScenesAugmented(data_dir='/share/phoenix/nfs06/S9/kh775/code/wsfm/scripts/data/keypoint_localization/old/', image_dir='/share/phoenix/nfs06/S9/kh775/dataset/megascenes_augmented_exhaustive/', split='train', resolution=[(512, 512)], transform='ColorJitter')" \
+#     --test_dataset="MegaScenesAugmented(data_dir ='/share/phoenix/nfs06/S9/kh775/code/wsfm/scripts/data/keypoint_localization/old/', image_dir='/share/phoenix/nfs06/S9/kh775/dataset/megascenes_augmented_exhaustive/', split='test', resolution=[(512, 512)], transform='ImgNorm')" \
 #     --train_criterion="ConfLoss(PointLoss(L21), alpha=0.2)" \
 #     --test_criterion="PointLoss(L21)" \
 #     --model "AsymmetricCroCo3DStereo(pos_embed='RoPE100', patch_embed_cls='ManyAR_PatchEmbed', img_size=(512, 512), head_type='dpt', output_mode='pts3d', depth_mode=('exp', -inf, inf), conf_mode=('exp', 1, inf), enc_embed_dim=1024, enc_depth=24, enc_num_heads=16, dec_embed_dim=768, dec_depth=12, dec_num_heads=12)" \
 #     --pretrained="checkpoints/DUSt3R_ViTLarge_BaseDecoder_512_dpt.pth" \
 #     --lr=1e-04 --min_lr=1e-06 --warmup_epochs=3 --epochs=500 --train_batch_size=2 --test_batch_size=1 --accum_iter=1 \
 #     --save_freq=1 --keep_freq=10 --eval_freq=1 --num_workers=4\
-#     --output_dir="checkpoints/dust3r_dpt512_allplans_xz_DELETE"
+#     --output_dir="checkpoints/DELETE"
 
 
 class MegaScenesAugmented(BaseStereoViewDataset):
@@ -84,6 +85,7 @@ class MegaScenesAugmented(BaseStereoViewDataset):
         super().__init__(*args, **kwargs)
         # assert self.split == 'train'
         self.loaded_data = self._load_data()
+        print(f"dataset transform: {self.transform}")
         
     def _load_data(self):
         bad_landmark_comp_pairs = [
@@ -137,12 +139,36 @@ class MegaScenesAugmented(BaseStereoViewDataset):
         images = load_megascenes_augmented_images(
             [plan_path, image_path], 
             size=size, 
-            plan_xys=xys[0], 
+            plan_xys=xys[0],
             image_xys=xys[1], 
+            transform=self.transform,
             verbose=False
         )
         view1, view2 = images
         return view1, view2
+    
+# class AugmentedDataset(BaseStereoViewDataset):
+#     def __init__(self, original_dataset, split, transform):
+#         self.original_dataset = original_dataset
+#         self.split = split
+#         self.transform = transform
+#         self.augmentation_factor = 3
+
+#     def __len__(self):
+#         return len(self.original_dataset) * self.augmentation_factor
+    
+#     def __getitem__(self, idx):
+#         print(f"AugmentedDataset - idx: {idx}")
+#         idx = idx[0] if self.split == "train" else idx
+#         original_idx = idx // self.augmentation_factor
+#         augmentation_idx = idx % self.augmentation_factor
+#         view1, view2 = self.original_dataset[original_idx]
+
+#         if augmentation_idx == 0:
+#             return view1, view2
+        
+#         view1_transformed, view2_transformed = self.transform(view1, view2)
+#         return view1_transformed, view2_transformed
 
 
 if __name__ == "__main__":
