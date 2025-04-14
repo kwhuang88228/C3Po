@@ -10,12 +10,16 @@ import numpy as np
 import PIL.Image
 import torch
 import torchvision.transforms as tvf
+from dust3r.datasets.utils.transforms import (ColorJitter, ImgNorm,
+                                              PhotometricTransforms)
+from PIL import ExifTags
 from PIL.ImageOps import exif_transpose
-from dust3r.datasets.utils.transforms import ImgNorm, ColorJitter, PhotometricTransforms
+import matplotlib.pyplot as plt
 
 os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
-import cv2  # noqa
 import warnings
+
+import cv2  # noqa
 
 warnings.simplefilter("ignore", PIL.Image.DecompressionBombWarning)
 
@@ -115,6 +119,36 @@ def crop_outlier_xys(plan_xys, image_xys, size, pair):
 
     return plan_xys_cropped, image_xys_cropped
 
+def get_exif_orientation(image):
+    exif = image._getexif()
+    if exif:
+        for tag, value in exif.items():
+            if ExifTags.TAGS.get(tag) == 'Orientation':
+                return value
+    return 1  # default (no rotation)
+
+def transform_points(points, orientation, width, height):
+    transformed = []
+    for x, y in points:  
+        if orientation == 2:  # Horizontal flip
+            new_x, new_y = width - x, y
+        elif orientation == 3:  # Rotate 180
+            new_x, new_y = width - x, height - y
+        elif orientation == 4:  # Vertical flip
+            new_x, new_y = x, height - y
+        elif orientation == 5:  # Vertical flip + rotate 90 CW
+            new_x, new_y = y, x
+        elif orientation == 6:  # Rotate 270 CW
+            new_x, new_y = height - y, x
+        elif orientation == 7:  # Horizontal flip + rotate 90 CW
+            new_x, new_y = height - y, width - x
+        elif orientation == 8:  # Rotate 90 CW
+            new_x, new_y = y, width - x
+        else:
+            new_x, new_y = x, y
+        transformed.append((new_x, new_y))
+    return np.array(transformed)
+
 def load_images(folder_or_list, size, square_ok=False, verbose=True):
     """ open and convert all images in a list or folder to proper input format for DUSt3R
     """
@@ -178,50 +212,39 @@ def load_images(folder_or_list, size, square_ok=False, verbose=True):
 def load_megascenes_augmented_images(pair, size, plan_xys, image_xys, transform, square_ok=False, verbose=True):
     """ open and convert all images in a list or folder to proper input format for DUSt3R
     """
-    import matplotlib.pyplot as plt
-
     plan_path, img_path = pair
     image_views = []
-    if plan_path.endswith(".gif"):
-        plan = PIL.Image.open(plan_path)
+
+    plan = PIL.Image.open(plan_path)
+    if plan_path.lower().endswith(".gif"):
         plan.seek(plan.n_frames // 2)
-        plan = plan.convert('RGB')
     else:
-        plan = PIL.Image.open(plan_path).convert('RGB')
-    if img_path.endswith(".gif"):
-        img = PIL.Image.open(img_path)
+        plan_orientation = get_exif_orientation(plan)
+        plan_xys = transform_points(plan_xys, plan_orientation, plan.size[0], plan.size[1])
+    plan = exif_transpose(plan).convert('RGB')
+
+    img = PIL.Image.open(img_path)
+    if img_path.lower().endswith(".gif"):
         img.seek(img.n_frames // 2)
-        img = img.convert('RGB')
     else:
-        img = PIL.Image.open(img_path).convert('RGB')
+        img_orientation = get_exif_orientation(img)
+        image_xys = transform_points(image_xys, img_orientation, img.size[0], img.size[1])
+    img = exif_transpose(img).convert('RGB')
+
     plan_W1, plan_H1 = plan.size
     img_W1, img_H1 = img.size
     scaled_plan = get_scaled_plan(plan)
-
-    # plt.imshow(scaled_plan)
-    # plt.savefig(os.path.join("/share/phoenix/nfs06/S9/kh775/code/dust3r/dust3r/utils/test/2", plan_path.split("/")[-1]))
-    # plt.close
-    # plt.imshow(img)
-    # plt.savefig(os.path.join("/share/phoenix/nfs06/S9/kh775/code/dust3r/dust3r/utils/test/2", img_path.split("/")[-1]))
-    # plt.close
 
     plan_updated, plan_xys_updated = resize_and_pad(scaled_plan, plan_xys, size, is_image=False)
     img_updated, image_xys_updated = resize_and_pad(img, image_xys, size, is_image=True)
 
     plan_xys_updated, image_xys_updated = crop_outlier_xys(plan_xys_updated, image_xys_updated, size, pair)
 
-    # plt.imshow(plan_resized_padded)
-    # plt.savefig(os.path.join("/share/phoenix/nfs06/S9/kh775/code/dust3r/dust3r/utils/test/2", "resized_"+plan_path.split("/")[-1]))
-    # plt.close
-    # plt.imshow(img_resized_padded)
-    # plt.savefig(os.path.join("/share/phoenix/nfs06/S9/kh775/code/dust3r/dust3r/utils/test/2", "resized_"+img_path.split("/")[-1]))
-    # plt.close
-
-
     plan_W2, plan_H2 = plan_updated.size
     img_W2, img_H2 = img_updated.size
     
-    transform = eval(transform)
+    if isinstance(transform, str):
+        transform = eval(transform)
 
     if verbose:
         print(f' - adding {plan_path} with resolution {plan_W1}x{plan_H1} --> {plan_W2}x{plan_H2}')
