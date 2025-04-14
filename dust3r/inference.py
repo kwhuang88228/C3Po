@@ -90,7 +90,7 @@ def losses_greater_than_x(losses, threshold):
 #     return result
 
 def build_dataset(dataset, batch_size, num_workers, test=False):
-    split = ['Train', 'Test'][test]
+    split = ['Train', 'Train (heldout)/Test'][test]
     print(f'Building {split} Data loader for dataset')
     loader = get_data_loader(
         dataset,

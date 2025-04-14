@@ -63,6 +63,7 @@ def get_args_parser():
 
     # dataset
     parser.add_argument('--train_dataset', required=True, type=str, help="training set")
+    parser.add_argument('--train_heldout_dataset', default='[None]', type=str, help="training heldout set")
     parser.add_argument('--test_dataset', default='[None]', type=str, help="testing set")
 
 
@@ -140,6 +141,8 @@ def train(args):
     # training dataset and loader
     print('Building train dataset {:s}'.format(args.train_dataset))
     data_loader_train = build_dataset(args.train_dataset, args.train_batch_size, args.num_workers, test=False)
+    print('Building train_heldout dataset {:s}'.format(args.train_heldout_dataset))
+    data_loader_train_heldout = build_dataset(args.train_heldout_dataset, args.test_batch_size, args.num_workers, test=True)
     print('Building test dataset {:s}'.format(args.test_dataset))
     data_loader_test = build_dataset(args.test_dataset, args.test_batch_size, args.num_workers, test=True)
 
@@ -180,12 +183,15 @@ def train(args):
     print(optimizer)
     loss_scaler = NativeScaler()
 
-    def write_log_stats(epoch, train_stats, test_stats):
+    def write_log_stats(epoch, train_stats, train_heldout_stats, test_stats):
         if misc.is_main_process():
             if log_writer is not None:
                 log_writer.flush()
 
             log_stats = dict(epoch=epoch, **{f'train_{k}': v for k, v in train_stats.items()})
+            with open(os.path.join(args.output_dir, "log.txt"), mode="a", encoding="utf-8") as f:
+                f.write(json.dumps(log_stats) + "\n")
+            log_stats = dict(epoch=epoch, **{f'train_heldout_{k}': v for k, v in train_heldout_stats.items()})
             with open(os.path.join(args.output_dir, "log.txt"), mode="a", encoding="utf-8") as f:
                 f.write(json.dumps(log_stats) + "\n")
             log_stats = dict(epoch=epoch, **{f'test_{k}': v for k, v in test_stats.items()})
@@ -230,6 +236,8 @@ def train(args):
         if (args.eval_freq > 0 and epoch % args.eval_freq == 0):
             # test_name = args.test_dataset.split("/")[-1]
             # for test_name, testset in data_loader_test.items():
+            train_heldout_stats = test_one_epoch(model, test_criterion, data_loader_train_heldout,
+                                    device, epoch, log_writer=log_writer, args=args, prefix="train_heldout")
             test_stats = test_one_epoch(model, test_criterion, data_loader_test,
                                     device, epoch, log_writer=log_writer, args=args, prefix="test")
 
@@ -239,7 +247,7 @@ def train(args):
                 new_best = True
 
         # Save more stuff
-        write_log_stats(epoch, train_stats, test_stats)
+        write_log_stats(epoch, train_stats, train_heldout_stats, test_stats)
 
         # Inference on the "intuitive" pairs
         if log_writer is not None:

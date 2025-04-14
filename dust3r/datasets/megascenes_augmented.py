@@ -79,12 +79,13 @@ from dust3r.utils.image import load_megascenes_augmented_images
 
 
 class MegaScenesAugmented(BaseStereoViewDataset):
-    def __init__(self, *args, data_dir, image_dir, **kwargs):
+    def __init__(self, *args, data_dir, image_dir, transform, **kwargs):
         self.data_dir = data_dir
         self.image_dir = image_dir
         super().__init__(*args, **kwargs)
         # assert self.split == 'train'
         self.loaded_data = self._load_data()
+        self.transform = transform
         print(f"dataset transform: {self.transform}")
         
     def _load_data(self):
@@ -106,7 +107,7 @@ class MegaScenesAugmented(BaseStereoViewDataset):
 
     def _get_bad_pairs(self):
         bad_pairs = set()
-        for file_name in ["corrupted_pairs.txt", "oob_pairs_test.txt", "oob_pairs_train.txt"]:
+        for file_name in ["corrupted_pairs.txt", "oob_pairs_test.txt", "oob_pairs_train.txt", "oob_pairs_train_heldout.txt"]:
             file_path = os.path.join(self.data_dir, file_name)
             for pair in list(open(file_path).readlines()):
                 plan_path, image_path = pair.replace("\n", "").split(" /")
@@ -146,30 +147,6 @@ class MegaScenesAugmented(BaseStereoViewDataset):
         )
         view1, view2 = images
         return view1, view2
-    
-# class AugmentedDataset(BaseStereoViewDataset):
-#     def __init__(self, original_dataset, split, transform):
-#         self.original_dataset = original_dataset
-#         self.split = split
-#         self.transform = transform
-#         self.augmentation_factor = 3
-
-#     def __len__(self):
-#         return len(self.original_dataset) * self.augmentation_factor
-    
-#     def __getitem__(self, idx):
-#         print(f"AugmentedDataset - idx: {idx}")
-#         idx = idx[0] if self.split == "train" else idx
-#         original_idx = idx // self.augmentation_factor
-#         augmentation_idx = idx % self.augmentation_factor
-#         view1, view2 = self.original_dataset[original_idx]
-
-#         if augmentation_idx == 0:
-#             return view1, view2
-        
-#         view1_transformed, view2_transformed = self.transform(view1, view2)
-#         return view1_transformed, view2_transformed
-
 
 if __name__ == "__main__":
     image_pairs_path = "/share/phoenix/nfs06/S9/kh775/code/wsfm/scripts/data/keypoint_localization/data_test/one_plan_2/image_pairs.csv"
