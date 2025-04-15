@@ -245,13 +245,21 @@ def load_megascenes_augmented_images(pair, size, plan_xys, image_xys, transform,
     if isinstance(transform, str):
         transform = eval(transform)
 
+    plan_augmented = transform(image=np.array(plan_updated), keypoints=plan_xys_updated)
+    plan_updated, plan_xys_updated = plan_augmented["image"], plan_augmented["keypoints"]
+    image_augmented = ImgNormAlb(image=np.array(img_updated), keypoints=image_xys_updated)
+    img_updated, image_xys_updated = image_augmented["image"], image_augmented["keypoints"]
+
+    # print(plan_updated.shape, img_updated.shape)
+    # print(plan_updated.shape[1:], img_updated.shape[1:])
+
     if verbose:
         print(f' - adding {plan_path} with resolution {plan_W1}x{plan_H1} --> {plan_W2}x{plan_H2}')
         print(f' - adding {img_path} with resolution {img_W1}x{img_H1} --> {img_W2}x{img_H2}')
     image_views.append(
         dict(
-            img=transform(plan_updated)[None], 
-            true_shape=np.int32([plan_updated.size[::-1]]), 
+            img=plan_updated[None], 
+            true_shape=np.int32([plan_updated.shape[1:]]), 
             idx=len(image_views), 
             instance=str(len(image_views)), 
             xys=np.int32(plan_xys_updated)
@@ -259,8 +267,8 @@ def load_megascenes_augmented_images(pair, size, plan_xys, image_xys, transform,
     )
     image_views.append(
         dict(
-            img=ImgNorm(img_updated)[None], 
-            true_shape=np.int32([img_updated.size[::-1]]), 
+            img=img_updated[None], 
+            true_shape=np.int32([img_updated.shape[1:]]), 
             idx=len(image_views), 
             instance=str(len(image_views)), 
             xys=np.int32(image_xys_updated)
@@ -270,6 +278,69 @@ def load_megascenes_augmented_images(pair, size, plan_xys, image_xys, transform,
     if verbose:
         print(f' (Found {len(image_views)} images)')
     return image_views
+
+# def load_megascenes_augmented_images(pair, size, plan_xys, image_xys, transform, square_ok=False, verbose=True):
+#     """ open and convert all images in a list or folder to proper input format for DUSt3R
+#     """
+#     plan_path, img_path = pair
+#     image_views = []
+
+#     plan = PIL.Image.open(plan_path)
+#     if plan_path.lower().endswith(".gif"):
+#         plan.seek(plan.n_frames // 2)
+#     else:
+#         plan_orientation = get_exif_orientation(plan)
+#         plan_xys = transform_points(plan_xys, plan_orientation, plan.size[0], plan.size[1])
+#     plan = exif_transpose(plan).convert('RGB')
+
+#     img = PIL.Image.open(img_path)
+#     if img_path.lower().endswith(".gif"):
+#         img.seek(img.n_frames // 2)
+#     else:
+#         img_orientation = get_exif_orientation(img)
+#         image_xys = transform_points(image_xys, img_orientation, img.size[0], img.size[1])
+#     img = exif_transpose(img).convert('RGB')
+
+#     plan_W1, plan_H1 = plan.size
+#     img_W1, img_H1 = img.size
+#     scaled_plan = get_scaled_plan(plan)
+
+#     plan_updated, plan_xys_updated = resize_and_pad(scaled_plan, plan_xys, size, is_image=False)
+#     img_updated, image_xys_updated = resize_and_pad(img, image_xys, size, is_image=True)
+
+#     plan_xys_updated, image_xys_updated = crop_outlier_xys(plan_xys_updated, image_xys_updated, size, pair)
+
+#     plan_W2, plan_H2 = plan_updated.size
+#     img_W2, img_H2 = img_updated.size
+    
+#     if isinstance(transform, str):
+#         transform = eval(transform)
+
+#     if verbose:
+#         print(f' - adding {plan_path} with resolution {plan_W1}x{plan_H1} --> {plan_W2}x{plan_H2}')
+#         print(f' - adding {img_path} with resolution {img_W1}x{img_H1} --> {img_W2}x{img_H2}')
+#     image_views.append(
+#         dict(
+#             img=transform(plan_updated)[None], 
+#             true_shape=np.int32([plan_updated.size[::-1]]), 
+#             idx=len(image_views), 
+#             instance=str(len(image_views)), 
+#             xys=np.int32(plan_xys_updated)
+#         )
+#     )
+#     image_views.append(
+#         dict(
+#             img=ImgNorm(img_updated)[None], 
+#             true_shape=np.int32([img_updated.size[::-1]]), 
+#             idx=len(image_views), 
+#             instance=str(len(image_views)), 
+#             xys=np.int32(image_xys_updated)
+#         )
+#     )
+
+#     if verbose:
+#         print(f' (Found {len(image_views)} images)')
+#     return image_views
 
 if __name__ == "__main__":
     pass

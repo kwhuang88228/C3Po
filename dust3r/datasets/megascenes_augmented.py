@@ -33,11 +33,11 @@ class MegaScenesAugmented(BaseStereoViewDataset):
             bad_plans = self._get_bad_plans()
             for row in reader:
                 i, landmark, comp, plan_name, image_name = row
-                if int(i) < 1:
-                    if (plan_name, image_name) not in bad_pairs and (landmark, comp) not in bad_landmark_comp_pairs and plan_name not in bad_plans:
-                        self.image_pairs.append(row)
-                else:
-                    break
+                # if int(i) < 1:
+                if (plan_name, image_name) not in bad_pairs and (landmark, comp) not in bad_landmark_comp_pairs and plan_name not in bad_plans:
+                    self.image_pairs.append(row)
+                # else:
+                #     break
         print(f"{len(self.image_pairs)} image pairs loaded")
 
     def _get_bad_pairs(self):
@@ -79,7 +79,7 @@ class MegaScenesAugmented(BaseStereoViewDataset):
                 size=size, 
                 plan_xys=xys[0],
                 image_xys=xys[1], 
-                transform=ImgNorm,
+                transform=ImgNormAlb,
                 verbose=False
             )
             return view1, view2
