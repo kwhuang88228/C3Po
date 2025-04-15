@@ -16,7 +16,7 @@ from .utils.transforms import *
 from .waymo import Waymo  # noqa
 from .wildrgbd import WildRGBD  # noqa
 
-from dust3r.datasets.utils.transforms import ColorJitter
+from dust3r.datasets.utils.transforms import *
 
 
 def collate_fn(batch):  # batch:[(view1, view2) * batch_size]
