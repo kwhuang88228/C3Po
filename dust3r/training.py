@@ -405,7 +405,7 @@ def test_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
     model.eval()
     metric_logger = misc.MetricLogger(delimiter="  ")
     metric_logger.meters = defaultdict(lambda: misc.SmoothedValue(window_size=9**9))
-    header = 'Test Epoch: [{}]'.format(epoch)
+    header = '{} Epoch: [{}]'.format(prefix, epoch)
 
     if log_writer is not None:
         print('log_dir: {}'.format(log_writer.log_dir))
@@ -427,8 +427,8 @@ def test_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
         metric_logger.update(loss=float(loss_value))
         # loss_value, loss_details = loss_tuple  # criterion returns two values
         metric_logger.update(loss=float(loss_value), **loss_details)
-        os.makedirs(os.path.join(args.output_dir, "test"), exist_ok=True)
-        os.makedirs(os.path.join(args.output_dir, "test_sorted"), exist_ok=True)
+        os.makedirs(os.path.join(args.output_dir, f"{prefix}"), exist_ok=True)
+        os.makedirs(os.path.join(args.output_dir, f"{prefix}_sorted"), exist_ok=True)
 
         if log_writer is not None:
             losses.append(float(loss_value))
@@ -446,9 +446,9 @@ def test_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                 # centroid diff measures the distance between centroids of the predicted points and gt points
                 viz, centroids_diff = get_viz(view1s, view2s, pred1s, pred2s, losses=losses, sort=False)
                 sorted_viz, _ = get_viz(view1s, view2s, pred1s, pred2s, losses=losses, sort=True)
-                get_viz_html(viz, save_path=join(args.output_dir, "test", f"test_{epoch}.html"))
-                get_viz_html(sorted_viz, save_path=join(args.output_dir, "test_sorted", f"test_sorted_{epoch}.html"))
-                log_writer.add_scalar("test_centroids_diff", np.mean(centroids_diff), 1000*epoch)
+                get_viz_html(viz, save_path=join(args.output_dir, f"{prefix}", f"{prefix}_{epoch}.html"))
+                get_viz_html(sorted_viz, save_path=join(args.output_dir, f"{prefix}_sorted", f"{prefix}_sorted_{epoch}.html"))
+                log_writer.add_scalar(f"{prefix}_centroids_diff", np.mean(centroids_diff), 1000*epoch)
                 del view1s, view2s, pred1s, pred2s
             
     if log_writer is not None:
