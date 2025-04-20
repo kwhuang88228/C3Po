@@ -10,15 +10,13 @@ from dust3r.datasets.utils.transforms import *
 
 
 class MegaScenesAugmented(BaseStereoViewDataset):
-    def __init__(self, *args, data_dir, image_dir, augmentation_factor, transform, **kwargs):
+    def __init__(self, *args, data_dir, image_dir, augmentation_factor, **kwargs):
         self.data_dir = data_dir
         self.image_dir = image_dir
         super().__init__(*args, **kwargs)
         # assert self.split == 'train'
         self.loaded_data = self._load_data()
         self.augmentation_factor = augmentation_factor
-        self.transform = transform
-        print(f"{self.split} dataset transform: {self.transform} {eval(self.transform)}")
         
     def _load_data(self):
         bad_landmark_comp_pairs = [
@@ -61,6 +59,9 @@ class MegaScenesAugmented(BaseStereoViewDataset):
         print(f"Loaded {len(list(open(plan_path).readlines()))} bad plans from {plan_path}")
         return bad_plans
 
+    def is_valid(self, plan_xys, image_xys):
+        return plan_xys.shape[0] > 0 and image_xys.shape[0] > 0
+
     def __len__(self):
         return len(self.image_pairs) * self.augmentation_factor
 
@@ -79,20 +80,23 @@ class MegaScenesAugmented(BaseStereoViewDataset):
                 size=size, 
                 plan_xys=xys[0],
                 image_xys=xys[1], 
-                transform=ImgNormAlb,
+                augment=False,
                 verbose=False
             )
             return view1, view2
         else:
-            view1, view2 = load_megascenes_augmented_images(
-                [plan_path, image_path], 
-                size=size, 
-                plan_xys=xys[0],
-                image_xys=xys[1], 
-                transform=self.transform,
-                verbose=False
-            )
-            return view1, view2
+            while True:
+                view1, view2 = load_megascenes_augmented_images(
+                    [plan_path, image_path], 
+                    size=size, 
+                    plan_xys=xys[0],
+                    image_xys=xys[1], 
+                    augment=True,
+                    verbose=False
+                )
+                if self.is_valid(view1["xys"], view2["xys"]):
+                    return view1, view2
+
 
 if __name__ == "__main__":
     image_pairs_path = "/share/phoenix/nfs06/S9/kh775/code/wsfm/scripts/data/keypoint_localization/data_test/one_plan_2/image_pairs.csv"

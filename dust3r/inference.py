@@ -43,7 +43,7 @@ def loss_of_one_batch(batch, model, criterion, device, symmetrize_batch=False, u
     view1, view2 = batch
     ignore_keys = set(['depthmap', 'dataset', 'label', 'instance', 'idx', 'true_shape', 'rng'])
     for view in batch:
-        for name in view.keys():  # pseudo_focal
+        for name in view.keys():  # ['img', 'xys', 'instance']
             if name in ignore_keys:
                 continue
             view[name] = view[name].to(device, non_blocking=True)
@@ -109,7 +109,7 @@ def build_dataset(dataset, batch_size, num_workers, test=False):
 def inference(model, test_criterion, device, epoch, output_dir, log_writer):
     def make_batches(plan_path, img_path, xys_path, batch_size):
         plan_xys, image_xys = np.load(xys_path)
-        pair = load_megascenes_augmented_images((plan_path, img_path), size=512, plan_xys=plan_xys, image_xys=image_xys, transform="ImgNorm")  
+        pair = load_megascenes_augmented_images((plan_path, img_path), size=512, plan_xys=plan_xys, image_xys=image_xys, augment=False)  
         batches = build_dataset([pair], batch_size, num_workers=4, test=True)
         return batches
 
