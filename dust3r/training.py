@@ -388,7 +388,8 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
             # centroid diff measures the distance between centroids of the predicted points and gt points
             viz, centroids_diff = get_viz(view1s, view2s, pred1s, pred2s)
             get_viz_html(viz, save_path=join(args.output_dir, "train", f"train_{epoch}.html"))
-            log_writer.add_scalar("train_centroids_diff", np.mean(centroids_diff), epoch_1000x)
+            if log_writer is not None:
+                log_writer.add_scalar("train_centroids_diff", np.mean(centroids_diff), epoch_1000x)
             del view1s, view2s, pred1s, pred2s
     
 
