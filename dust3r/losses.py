@@ -159,7 +159,7 @@ class PointLoss(Criterion, MultiLoss):
         super().__init__(criterion)
 
     def get_name(self):
-        return f'PointLoss({self.pixel_loss})'
+        return f'PointLoss()'
 
     def get_gt_pts2_and_mask2(self, plan_xys_with_pad, img_xys_with_pad, last_nonzero_indices, size):
         B, H, W, _ = size
@@ -181,21 +181,21 @@ class PointLoss(Criterion, MultiLoss):
         # # pred1: dict("pts3d": Tensor(BHWC=(4,224,224,3)), "conf": Tensor(BHW=(4,224,224)))
         # # pred2: dict("pts3d_in_other_view": Tensor(BHWC), "conf": Tensor(BHW))
         
-        # identity loss
-        B, C, H, W = gt1["img"].size()
-        ys = torch.arange(H)
-        xs = torch.arange(W)
-        grid_y, grid_x = torch.meshgrid(ys, xs, indexing='ij')
-        coords = torch.stack([grid_y, grid_x], dim=-1)  # (H, W, 2)
-        coords = coords.unsqueeze(0).expand(B, -1, -1, -1) # (B, H, W, 2)
-        gt_pts1 = CoordNorm(coords, H).cuda()
+        # # identity loss
+        # B, C, H, W = gt1["img"].size()
+        # ys = torch.arange(H)
+        # xs = torch.arange(W)
+        # grid_y, grid_x = torch.meshgrid(ys, xs, indexing='ij')
+        # coords = torch.stack([grid_y, grid_x], dim=-1)  # (H, W, 2)
+        # coords = coords.unsqueeze(0).expand(B, -1, -1, -1) # (B, H, W, 2)
+        # gt_pts1 = CoordNorm(coords, H).cuda()
         
-        pred1_pts3d = pred1["pts3d"]  # (B, H, W, 3)
-        pred1_pts3d_x = pred1_pts3d[..., 0:1]  # (B, H, W, 1)
-        pred1_pts3d_z = pred1_pts3d[..., 2:3]  # (B, H, W, 1)
-        pred_pts1 = torch.cat([pred1_pts3d_x, pred1_pts3d_z], dim=-1) # (B, H, W, 2)
+        # pred1_pts3d = pred1["pts3d"]  # (B, H, W, 3)
+        # pred1_pts3d_x = pred1_pts3d[..., 0:1]  # (B, H, W, 1)
+        # pred1_pts3d_z = pred1_pts3d[..., 2:3]  # (B, H, W, 1)
+        # pred_pts1 = torch.cat([pred1_pts3d_x, pred1_pts3d_z], dim=-1) # (B, H, W, 2)
 
-        mask1 = torch.ones((B, H, W), dtype=torch.bool).cuda()
+        # mask1 = torch.ones((B, H, W), dtype=torch.bool).cuda()
 
         # pixel loss
         pred2_pts3d = pred2["pts3d_in_other_view"]  # (B, H, W, 3)
@@ -208,20 +208,26 @@ class PointLoss(Criterion, MultiLoss):
         last_nonzero_indices = get_last_nonzero_indices(img_xys_with_pad)   # list(B)
         gt_pts2, mask2 = self.get_gt_pts2_and_mask2(plan_xys_with_pad, img_xys_with_pad, last_nonzero_indices, pred_pts2.size())
 
-        return gt_pts1, gt_pts2, pred_pts1, pred_pts2, mask1, mask2, {}
+        # return gt_pts1, gt_pts2, pred_pts1, pred_pts2, mask1, mask2, {}
+        return gt_pts2, pred_pts2, mask2, {}
 
     def compute_loss(self, gt1, gt2, pred1, pred2, **kw):
-        gt_pts1, gt_pts2, pred_pts1, pred_pts2, mask1, mask2, monitoring = \
+        # gt_pts1, gt_pts2, pred_pts1, pred_pts2, mask1, mask2, monitoring = \
+        #     self.get_all_pts3d(gt1, gt2, pred1, pred2, **kw)
+        gt_pts2, pred_pts2, mask2, monitoring = \
             self.get_all_pts3d(gt1, gt2, pred1, pred2, **kw)
         # pred_pts1: (B, H, W, 2), gt_pts1: (B, H, W, 2), mask1: (B, H, W)
         # pred_pts2: (B, H, W, 2), gt_pts2: (B, H, W, 2), mask2: (B, H, W)
         # pred_pts1[mask1]) = gt_pts1[mask1] = (HW, 2)
         # pred_pts2[mask2]) = gt_pts2[mask2] = (N, 2)
-        l1 = self.criterion(pred_pts1[mask1], gt_pts1[mask1])  # l1: (2HW)
+        # l1 = self.criterion(pred_pts1[mask1], gt_pts1[mask1])  # l1: (2HW)
         l2 = self.criterion(pred_pts2[mask2], gt_pts2[mask2])  # l2: (M+N)
         self_name = type(self).__name__
-        details = {self_name + '_pts3d_1': float(l1.mean()), self_name + '_pts3d_2': float(l2.mean())}
-        return Sum((l1, mask1), (l2, mask2)), (details | monitoring)
+        # details = {self_name + '_pts3d_1': float(l1.mean()), self_name + '_pts3d_2': float(l2.mean())}
+        # return Sum((l1, mask1), (l2, mask2)), (details | monitoring)
+        details = {self_name + '_pts3d_2': float(l2.mean())}
+        return ((l2, mask2)), (details | monitoring)
+        
         
 
 
@@ -305,22 +311,24 @@ class ConfLoss (MultiLoss):
 
     def compute_loss(self, gt1, gt2, pred1, pred2, **kw):
         # compute per-pixel loss
-        ((loss1, msk1), (loss2, msk2)), details = self.pixel_loss(gt1, gt2, pred1, pred2, **kw)
-        if loss1.numel() == 0:
-            print('NO VALID POINTS in img1', force=True)
+        # ((loss1, msk1), (loss2, msk2)), details = self.pixel_loss(gt1, gt2, pred1, pred2, **kw)
+        (loss2, msk2), details = self.pixel_loss(gt1, gt2, pred1, pred2, **kw)
+        # if loss1.numel() == 0:
+        #     print('NO VALID POINTS in img1', force=True)
         if loss2.numel() == 0:
             print('NO VALID POINTS in img2', force=True)
 
         # weight by confidence
-        conf1, log_conf1 = self.get_conf_log(pred1['conf'][msk1])  # (2HW), (2HW)
+        # conf1, log_conf1 = self.get_conf_log(pred1['conf'][msk1])  # (2HW), (2HW)
         conf2, log_conf2 = self.get_conf_log(pred2['conf'][msk2])  # (M+N), (M+N)
-        conf_loss1 = loss1 * conf1 - self.alpha * log_conf1
+        # conf_loss1 = loss1 * conf1 - self.alpha * log_conf1
         conf_loss2 = loss2 * conf2 - self.alpha * log_conf2
 
         # average + nan protection (in case of no valid pixels at all)
-        conf_loss1 = conf_loss1.mean() if conf_loss1.numel() > 0 else 0
+        # conf_loss1 = conf_loss1.mean() if conf_loss1.numel() > 0 else 0
         conf_loss2 = conf_loss2.mean() if conf_loss2.numel() > 0 else 0
-        return conf_loss1 + conf_loss2, dict(conf_loss1=float(conf_loss1), conf_loss2=float(conf_loss2), **details)
+        # return conf_loss1 + conf_loss2, dict(conf_loss1=float(conf_loss1), conf_loss2=float(conf_loss2), **details)
+        return conf_loss2, dict(conf_loss2=float(conf_loss2), **details)
 
 
 class Regr3D_ShiftInv (Regr3D):

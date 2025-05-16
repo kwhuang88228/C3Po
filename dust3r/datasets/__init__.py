@@ -30,6 +30,8 @@ def collate_fn(batch):  # batch:[(view1, view2) * batch_size]
     view2_xys_batched = []
     view1_instances = []
     view2_instances = []
+    # view1_paths = []
+    # view2_paths = []
     for view1, view2 in batch:  #(['img', 'plan_xys', 'image_xys'])
         view1_img_batched.append(torch.squeeze(torch.Tensor(view1["img"]), 0))
         view2_img_batched.append(torch.squeeze(torch.Tensor(view2["img"]), 0))
@@ -38,6 +40,8 @@ def collate_fn(batch):  # batch:[(view1, view2) * batch_size]
 
         view1_xys_batched.append(torch.from_numpy(np.pad(view1["xys"], ((0, max_xys_len - view1["xys"].shape[0]), (0, 0)), mode="constant", constant_values=0)))
         view2_xys_batched.append(torch.from_numpy(np.pad(view2["xys"], ((0, max_xys_len - view2["xys"].shape[0]), (0, 0)), mode="constant", constant_values=0)))
+        # view1_paths.append(view1["path"])
+        # view2_paths.append(view2["path"])
 
     view1_img_batched = torch.stack(view1_img_batched)
     view2_img_batched = torch.stack(view2_img_batched)
@@ -46,12 +50,14 @@ def collate_fn(batch):  # batch:[(view1, view2) * batch_size]
     final_view1 = dict(
         img=view1_img_batched, 
         xys=view1_xys_batched,
-        instance=view1_instances
+        instance=view1_instances,
+        # path=view1_paths
     )
     final_view2 = dict(       
         img=view2_img_batched,
         xys=view2_xys_batched,
-        instance=view2_instances
+        instance=view2_instances,
+        # path=view2_paths
     )
     return final_view1, final_view2
 

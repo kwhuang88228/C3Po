@@ -253,7 +253,7 @@ def train(args):
         if log_writer is not None:
             inference(model, test_criterion, device, epoch, args.output_dir, log_writer)
 
-        if epoch > args.start_epoch:
+        if epoch >= args.start_epoch:
             if args.keep_freq and epoch % args.keep_freq == 0:
                 save_model(epoch - 1, str(epoch), best_so_far)
             if new_best:

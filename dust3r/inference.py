@@ -118,8 +118,9 @@ def inference(model, test_criterion, device, epoch, output_dir, log_writer):
         centroids_diff_list = []
         for batch in batches:
             output = loss_of_one_batch(batch, model=model, criterion=criterion, device=device, symmetrize_batch=False, use_amp=False, ret=None)
-            loss, _ = output["loss"]
-            viz, centroids_diff = get_viz(output["view1"], output["view2"], output["pred1"], output["pred2"], [loss.item()])
+            loss, loss_details = output["loss"]
+            loss_value = sum(loss_details.values())
+            viz, centroids_diff = get_viz(output["view1"], output["view2"], output["pred1"], output["pred2"], [loss_value])
             viz_list.append(viz)
             centroids_diff_list.append(centroids_diff)
         return viz_list, centroids_diff_list

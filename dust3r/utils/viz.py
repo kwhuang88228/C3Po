@@ -48,6 +48,7 @@ def get_viz(view1, view2, pred1, pred2, losses=None, sort=False):
         titles = ["gt", "pred2", "conf_pred2", "image+correspondences", "image"]
         N = len(titles)
         fig, axes = plt.subplots(B, N, figsize=(30, B*N))
+        plt.axis("off")
         
         bs = np.argsort(losses) if losses is not None and sort else range(B)
         idx = 0

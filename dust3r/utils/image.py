@@ -304,7 +304,8 @@ def load_megascenes_augmented_images(pair, size, plan_xys, image_xys, augment, s
             true_shape=np.int32([plan_updated.size[::-1]]), 
             idx=len(image_views), 
             instance=str(len(image_views)), 
-            xys=np.int32(plan_xys_updated)
+            xys=np.int32(plan_xys_updated),
+            # path=plan_path
         )
     )
     image_views.append(
@@ -313,7 +314,8 @@ def load_megascenes_augmented_images(pair, size, plan_xys, image_xys, augment, s
             true_shape=np.int32([img_updated.size[::-1]]), 
             idx=len(image_views), 
             instance=str(len(image_views)), 
-            xys=np.int32(image_xys_updated)
+            xys=np.int32(image_xys_updated),
+            # path=img_path
         )
     )
 
