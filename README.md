@@ -28,7 +28,7 @@ cd ../../../
 ### Checkpoints
 
 Pre-trained model weight:
-[`ckpt.pth`](https://1drv.ms/f/s!AgWLhKhRf9v1jM0-2B3MmvMfxHC2fA?e=zrXGkr)
+[`ckpt.pth`](https://1drv.ms/f/s!AgWLhKhRf9v1jM0-UxeBDemzJfVtWg?e=8jbVWI)
 
 Download weight to demo/
 
