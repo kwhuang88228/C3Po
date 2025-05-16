@@ -105,14 +105,14 @@ def build_dataset(dataset, batch_size, num_workers, test=False):
     print(f"{split} dataset length: {len(loader)}")
     return loader
 
-@torch.no_grad()
-def inference(model, test_criterion, device, epoch, output_dir, log_writer):
-    def make_batches(plan_path, img_path, xys_path, batch_size):
+def make_batches(plan_path, img_path, xys_path, batch_size):
         plan_xys, image_xys = np.load(xys_path)
         pair = load_megascenes_augmented_images((plan_path, img_path), size=512, plan_xys=plan_xys, image_xys=image_xys, augment=False)  
         batches = build_dataset([pair], batch_size, num_workers=4, test=True)
         return batches
 
+@torch.no_grad()
+def inference(model, test_criterion, device, epoch, output_dir, log_writer):
     def get_inference_viz(batches, model, criterion, device):
         viz_list = []
         centroids_diff_list = []
@@ -175,6 +175,8 @@ def inference(model, test_criterion, device, epoch, output_dir, log_writer):
     with open(output_html_path, 'w') as f:
         f.write(f'<img src="data:image/png;base64,{img_str}">')
 
+def demo():
+    print("demo")
 
 def check_if_same_size(pairs):
     shapes1 = [img1['img'].shape[-2:] for img1, img2 in pairs]
