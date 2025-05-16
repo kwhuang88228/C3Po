@@ -42,3 +42,19 @@ Download weight to demo/
 ### Demo
 
 Run demo.ipynb
+
+
+### Full Dataset
+
+Full dataset on Hugging Face [`C3`](https://huggingface.co/datasets/kwhuang/C3)
+
+Dataset Structure:
+
+C3/  
+ |-correspondences/correspondences.tar.gz  
+ |-{scene1}.tar.gz  
+ |-{scene2}.tar.gz  
+ ...
+
+ Inside correspondences.tar.gz you can find correspondence data. 
+ Inside each of the {scene}.tar.gz files, you can find the floorplans and photos associated the scene
