@@ -7,8 +7,6 @@
 ```bash
 git clone --recursive git@github.com:kwhuang88228/C3Po.git
 cd C3Po
-# if you have already cloned dust3r:
-# git submodule update --init --recursive
 ```
 
 2. Create the environment, here we show an example using conda.
