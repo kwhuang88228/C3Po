@@ -16,6 +16,11 @@ cd C3Po
 conda create -n c3po python=3.11 cmake=3.14.0
 conda activate c3po 
 pip install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cu121  # use the correct version for you
+pip install -r requirements.txt
+# Optional: you can also install additional packages to:
+# - add support for HEIC images
+# - add pyrender, used to render depthmap in some datasets preprocessing
+# - add required packages for visloc.py
 pip install -r requirements_optional.txt
 ```
 
